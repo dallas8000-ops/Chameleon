@@ -72,6 +72,11 @@ def validate_segments(value):
         for key in ("start", "end"):
             if isinstance(raw.get(key), bool) or not isinstance(raw.get(key), Real):
                 raise serializers.ValidationError({index: {key: "Must be a number."}})
+            try:
+                if not math.isfinite(float(raw[key])):
+                    raise serializers.ValidationError({index: {key: "Must be a finite number."}})
+            except OverflowError:
+                raise serializers.ValidationError({index: {key: "Must be a finite number."}}) from None
         unknown = set(raw) - {"start", "end", "text"}
         if unknown:
             raise serializers.ValidationError({index: f"Unknown fields: {sorted(unknown)}."})

@@ -22,6 +22,7 @@ from apps.studio.serializers import (
     SceneWriteSerializer,
 )
 from apps.studio.services import AssetRejected, AssetService, ProjectService, SceneService
+from apps.studio.upload_handlers import StudioUploadSizeLimitHandler
 
 
 def not_found() -> Response:
@@ -171,6 +172,10 @@ class CaptionDetailView(StudioView):
 
 class AssetListCreateView(StudioView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def initialize_request(self, request, *args, **kwargs):
+        request.upload_handlers.insert(0, StudioUploadSizeLimitHandler(request))
+        return super().initialize_request(request, *args, **kwargs)
 
     def get(self, request):
         assets = AssetService.visible_to(request.user)

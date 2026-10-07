@@ -51,10 +51,16 @@ class AssetApiTests(StudioFixture):
             self.client.post("/api/assets/", {"workspace_id": self.workspace.id}),
             self.client.post("/api/assets/", {"workspace_id": "abc"}),
         ]
-        with override_settings(STUDIO_MAX_UPLOAD_BYTES=10):
-            cases.append(self.upload())
         for r in cases:
             self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(Asset.objects.count(), 0)
+
+    def test_oversized_upload_rejected_during_parsing(self) -> None:
+        self.client.force_login(self.owner)
+        with override_settings(STUDIO_MAX_UPLOAD_BYTES=10):
+            response = self.upload()
+        self.assertEqual(response.status_code, 413, response.content)
+        self.assertEqual(response.json()["code"], "upload_too_large")
         self.assertEqual(Asset.objects.count(), 0)
 
     def test_provenance_cannot_be_client_supplied(self) -> None:

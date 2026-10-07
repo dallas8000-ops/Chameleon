@@ -15,6 +15,17 @@ Current API foundation:
 
 The backend uses a custom email-based user model in `apps.accounts`, session authentication with CSRF protection, and workspace membership RBAC.
 
+## Studio asset uploads
+
+`POST /api/assets/` accepts multipart uploads for workspace owners and editors.
+The default `STUDIO_MAX_UPLOAD_BYTES` limit is 25 MiB and is enforced while
+multipart files are being parsed, across all file parts in the request; an
+oversized upload returns HTTP 413. The later service-level size check remains
+as defense in depth. Supported file signatures are PNG, JPEG, GIF, WebP, MP4,
+and WebM, and the declared content type must match the detected signature.
+Uploads use private local Django storage and are not durable across Railway
+deployments without persistent storage configuration.
+
 ## Shared throttling
 
 Non-test processes require `REDIS_URL` for Django's shared Redis cache and

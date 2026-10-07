@@ -42,6 +42,7 @@ class CaptionApiTests(StudioFixture):
             [{"start": 1, "end": 1, "text": "x"}],
             [{"start": -1, "end": 1, "text": "x"}],
             [{"start": "a", "end": 1, "text": "x"}],
+            [{"start": 10**400, "end": 10**400 + 1, "text": "x"}],
             [{"start": True, "end": 2, "text": "x"}],
             [{"start": 0, "end": 1}],
             [{"start": 0, "end": 1, "text": ""}],
