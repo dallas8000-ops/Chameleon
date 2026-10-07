@@ -93,6 +93,25 @@ else:
 
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
+if RUNNING_TESTS:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "chameleon-tests",
+        }
+    }
+else:
+    REDIS_URL = os.environ.get("REDIS_URL")
+    if not REDIS_URL:
+        raise RuntimeError("REDIS_URL environment variable must be set for shared auth throttling")
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "KEY_PREFIX": "chameleon",
+        }
+    }
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
@@ -104,7 +123,7 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.ScopedRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "auth": os.environ.get("AUTH_THROTTLE_RATE", "1000/minute" if RUNNING_TESTS else "5/minute"),
+        "auth": os.environ.get("AUTH_THROTTLE_RATE", "5/minute"),
     },
 }
 

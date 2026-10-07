@@ -1,12 +1,106 @@
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.core.cache import cache
+from django.db import IntegrityError
+from django.test import Client, SimpleTestCase, TestCase
+from rest_framework.throttling import ScopedRateThrottle
 
 from apps.accounts.models import Workspace, WorkspaceMembership
+from apps.accounts.serializers import RegisterSerializer
+from apps.accounts.views import is_duplicate_email_conflict
+
+
+class RegistrationConflictTests(SimpleTestCase):
+    class DatabaseConflict(Exception):
+        def __init__(self, pgcode: str, constraint: str) -> None:
+            super().__init__("database constraint violation")
+            self.pgcode = pgcode
+            self.diag = SimpleNamespace(constraint_name=constraint)
+
+    def test_postgres_only_maps_email_unique_constraint(self) -> None:
+        for constraint, expected in [
+            ("accounts_user_email_key", True),
+            ("accounts_workspace_slug_key", False),
+        ]:
+            with self.subTest(constraint=constraint):
+                cause = self.DatabaseConflict("23505", constraint)
+                error = IntegrityError("database constraint violation")
+                error.__cause__ = cause
+                self.assertEqual(is_duplicate_email_conflict(error), expected)
+
+    def test_postgres_non_unique_error_is_not_mapped(self) -> None:
+        cause = self.DatabaseConflict("23502", "accounts_user_email_key")
+        error = IntegrityError("database constraint violation")
+        error.__cause__ = cause
+        self.assertFalse(is_duplicate_email_conflict(error))
 
 
 class AuthApiTests(TestCase):
     def setUp(self) -> None:
+        cache.clear()
         self.csrf_client = Client(enforce_csrf_checks=True)
+
+    def test_raced_email_insert_returns_duplicate_validation_after_rollback(self) -> None:
+        validate_email = RegisterSerializer.validate_email
+
+        def insert_competing_user(serializer, value):
+            email = validate_email(serializer, value)
+            get_user_model().objects.create_user(email=email)
+            return email
+
+        with patch.object(RegisterSerializer, "validate_email", insert_competing_user):
+            response = self._register()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "validation_error")
+        self.assertEqual(
+            response.json()["errors"],
+            {"email": ["A user with this email already exists."]},
+        )
+        self.assertEqual(get_user_model().objects.count(), 1)
+        self.assertEqual(Workspace.objects.count(), 0)
+        self.assertEqual(WorkspaceMembership.objects.count(), 0)
+        self.assertFalse(self.csrf_client.get("/api/auth/session/").json()["authenticated"])
+
+    def test_unrelated_registration_integrity_error_is_not_hidden(self) -> None:
+        with patch.object(
+            Workspace.objects,
+            "create",
+            side_effect=IntegrityError("unrelated workspace constraint"),
+        ):
+            with self.assertRaisesMessage(IntegrityError, "unrelated workspace constraint"):
+                self._register()
+
+        self.assertEqual(get_user_model().objects.count(), 0)
+        self.assertEqual(Workspace.objects.count(), 0)
+        self.assertEqual(WorkspaceMembership.objects.count(), 0)
+
+    def test_auth_rate_exceeded_returns_429(self) -> None:
+        with patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"auth": "2/minute"}):
+            first = self._register(email="invalid")
+            second = self._register(email="invalid")
+            third = self._register(email="invalid")
+
+        self.assertEqual(first.status_code, 400)
+        self.assertEqual(second.status_code, 400)
+        self.assertEqual(third.status_code, 429)
+        self.assertIn("Retry-After", third.headers)
+        self.assertIn("throttled", third.json()["detail"].lower())
+        self.assertEqual(get_user_model().objects.count(), 0)
+
+    def test_logout_missing_csrf_is_rejected_and_preserves_session(self) -> None:
+        self.assertEqual(self._register().status_code, 201)
+
+        response = self.csrf_client.post(
+            "/api/auth/logout/",
+            data={},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(self.csrf_client.get("/api/auth/session/").json()["authenticated"])
 
     def _get_csrf_token(self) -> str:
         response = self.csrf_client.get("/api/auth/csrf/")

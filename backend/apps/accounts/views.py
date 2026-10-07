@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.contrib.auth import authenticate, login, logout
+from django.db import IntegrityError
 from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
@@ -55,6 +56,16 @@ def build_session_payload(user) -> dict:
     }
 
 
+def is_duplicate_email_conflict(error: IntegrityError) -> bool:
+    cause = error.__cause__
+    if getattr(cause, "pgcode", None) == "23505":
+        return getattr(getattr(cause, "diag", None), "constraint_name", None) == "accounts_user_email_key"
+    return (
+        getattr(cause, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE"
+        and str(cause) == "UNIQUE constraint failed: accounts_user.email"
+    )
+
+
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class CsrfTokenView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -79,7 +90,18 @@ class RegisterView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        membership = serializer.save()
+        try:
+            membership = serializer.save()
+        except IntegrityError as error:
+            # The serializer's atomic block has rolled back before handling the race.
+            if not is_duplicate_email_conflict(error):
+                raise
+            return error_response(
+                code="validation_error",
+                message="Registration data is invalid.",
+                errors={"email": ["A user with this email already exists."]},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         login(request, membership.user)
         payload = build_session_payload(membership.user)
         payload["workspace"] = WorkspaceMembershipSerializer(membership).data
