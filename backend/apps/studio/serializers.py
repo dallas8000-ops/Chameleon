@@ -155,7 +155,7 @@ class AssetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Asset
-        fields = ["id", "workspace_id", "asset_type", "name", "content_type", "size_bytes", "provenance", "created_at"]
+        fields = ["id", "workspace_id", "asset_type", "name", "content_type", "size_bytes", "created_at"]
         read_only_fields = fields
 
 

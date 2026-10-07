@@ -63,11 +63,22 @@ class AssetApiTests(StudioFixture):
         self.assertEqual(response.json()["code"], "upload_too_large")
         self.assertEqual(Asset.objects.count(), 0)
 
-    def test_provenance_cannot_be_client_supplied(self) -> None:
+    def test_provenance_is_server_generated_and_not_serialized(self) -> None:
         self.client.force_login(self.owner)
         r = self.upload(provenance='{"source":"forged"}')
-        self.assertEqual(r.json()["provenance"]["source"], "upload")
-
+        self.assertEqual(r.status_code, 201, r.content)
+        body = r.json()
+        self.assertNotIn("provenance", body)
+        asset = Asset.objects.get(pk=body["id"])
+        self.assertEqual(asset.provenance["source"], "upload")
+        self.assertEqual(asset.provenance["uploaded_by"], self.owner.id)
+        self.assertEqual(asset.provenance["original_filename"], "evil.png")
+        self.client.force_login(self.reviewer)
+        for response in (self.client.get(f"/api/assets/{asset.id}/"), self.client.get("/api/assets/")):
+            text = response.content.decode()
+            self.assertNotIn("provenance", text)
+            self.assertNotIn("original_filename", text)
+            self.assertNotIn("uploaded_by", text)
     def test_foreign_and_reviewer_upload_denied(self) -> None:
         self.client.force_login(self.outsider)
         self.assertEqual(self.upload().status_code, 404)
