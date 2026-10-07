@@ -1,11 +1,20 @@
+import logging
+from datetime import timedelta
+
 from celery import shared_task
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
+from kombu.exceptions import OperationalError
 
 from apps.jobs.models import GenerationJob
 from apps.jobs.services import apply_provider_update
 from apps.providers.base import ProviderError
 from apps.providers.registry import ProviderRegistry
+
+logger = logging.getLogger(__name__)
+POLL_LIMIT = 80
+ACTIVE_STATES = (GenerationJob.Status.QUEUED, GenerationJob.Status.PROCESSING)
 
 
 @shared_task
@@ -36,9 +45,9 @@ def submit_provider_job(job_id: int) -> None:
                 name=job.payload.get("name", ""),
             )
         elif job.capability == "presenter.generate":
-            submission = provider.submit_presenter_generation(
-                script_text=job.payload.get("script_text", ""),
-                scene_payload=job.payload,
+            raise ProviderError(
+                "capability_unavailable",
+                "Presenter generation requires a secure workspace asset bridge, which is not configured.",
             )
         else:
             raise ProviderError("capability_unavailable", "This provider does not support the requested capability.")
@@ -57,68 +66,96 @@ def submit_provider_job(job_id: int) -> None:
         current.status = GenerationJob.Status.QUEUED
         current.provider_job_id = submission.provider_job_id
         current.quoted_credits = submission.quoted_credits
-        current.save(update_fields=["status", "provider_job_id", "quoted_credits", "updated_at"])
+        current.next_poll_at = timezone.now()
+        current.save(update_fields=[
+            "status", "provider_job_id", "quoted_credits", "next_poll_at", "updated_at",
+        ])
     try:
         poll_provider_job.delay(job.id)
-    except Exception:
-        GenerationJob.objects.filter(pk=job.id, status=GenerationJob.Status.QUEUED).update(
-            error_code="provider_poll_unavailable",
-            error_message="Magic Hour accepted the job, but status polling could not be queued.",
-            updated_at=timezone.now(),
-        )
+    except (OperationalError, OSError):
+        polling_queue_failed(job.id)
 
 
-@shared_task(bind=True, max_retries=80)
-def poll_provider_job(self, job_id: int) -> None:
-    job = GenerationJob.objects.filter(pk=job_id).first()
-    if job is None or job.status not in (
-        GenerationJob.Status.QUEUED,
-        GenerationJob.Status.PROCESSING,
-    ):
-        return
+def polling_queue_failed(job_id: int) -> None:
+    logger.exception("Provider polling dispatch failed for job %s; durable schedule retained.", job_id)
+    GenerationJob.objects.filter(pk=job_id, status__in=ACTIVE_STATES).update(
+        error_code="provider_poll_unavailable",
+        error_message="Polling dispatch failed; the durable schedule will be recovered by the polling sweeper.",
+        updated_at=timezone.now(),
+    )
+
+
+@shared_task
+def poll_provider_job(job_id: int) -> None:
+    with transaction.atomic():
+        job = GenerationJob.objects.select_for_update().filter(pk=job_id).first()
+        if job is None or job.status not in ACTIVE_STATES or not job.provider_job_id:
+            return
+        now = timezone.now()
+        if job.next_poll_at is not None and job.next_poll_at > now:
+            return
+        if job.poll_attempts >= POLL_LIMIT:
+            job.status = GenerationJob.Status.FAILED
+            job.error_code = "provider_poll_exhausted"
+            job.error_message = (
+                "Local tracking exhausted its polling budget; the provider outcome is unknown. "
+                "Resume tracking with poll_generation_jobs --resume-job before creating another paid request."
+            )
+            job.next_poll_at = None
+            job.save(update_fields=["status", "error_code", "error_message", "next_poll_at", "updated_at"])
+            return
+        job.poll_attempts += 1
+        # A committed lease also schedules recovery if this worker dies during the HTTP request.
+        job.next_poll_at = now + timedelta(seconds=60)
+        job.save(update_fields=["poll_attempts", "next_poll_at", "updated_at"])
+
     provider = ProviderRegistry.get(job.provider_name)
-    if not provider.is_configured():
-        GenerationJob.objects.filter(
-            pk=job.id,
-            status__in=(GenerationJob.Status.QUEUED, GenerationJob.Status.PROCESSING),
-        ).update(
-            error_code="provider_not_configured",
-            error_message="Configure MAGIC_HOUR_API_KEY to resume provider status polling.",
-            updated_at=timezone.now(),
-        )
-        return
+    delay = 15
     try:
+        if not provider.is_configured():
+            raise ProviderError("provider_not_configured", "Configure MAGIC_HOUR_API_KEY to resume status polling.")
         update = provider.get_generation_update(job=job)
     except ProviderError as error:
-        if error.code == "provider_unavailable":
-            if self.request.retries >= self.max_retries:
-                GenerationJob.objects.filter(
-                    pk=job.id,
-                    status__in=(GenerationJob.Status.QUEUED, GenerationJob.Status.PROCESSING),
-                ).update(
-                    error_code="provider_poll_unavailable",
-                    error_message="Magic Hour status could not be checked after repeated retries.",
-                    updated_at=timezone.now(),
-                )
-                return
-            raise self.retry(countdown=min(15 * (2 ** min(self.request.retries, 4)), 240))
-        apply_provider_update(
-            job_id=job.id,
-            external_event_id=f"poll-error:{job.provider_job_id}:{error.code}",
-            status=GenerationJob.Status.FAILED,
+        # A status-fetch failure is not evidence that the paid generation itself failed.
+        GenerationJob.objects.filter(pk=job.id, status__in=ACTIVE_STATES).update(
             error_code=error.code,
             error_message=error.message,
+            updated_at=timezone.now(),
         )
-        return
+        delay = min(15 * 2 ** min(job.poll_attempts - 1, 4), 240)
+    else:
+        apply_provider_update(
+            job_id=job.id,
+            external_event_id=update.external_event_id,
+            status=update.status,
+            result=update.result,
+            error_code=update.error_code,
+            error_message=update.error_message,
+            amount_credits=update.amount_credits,
+        )
+        GenerationJob.objects.filter(pk=job.id, status__in=ACTIVE_STATES).update(
+            error_code="", error_message="",
+        )
 
-    apply_provider_update(
-        job_id=job.id,
-        external_event_id=update.external_event_id,
-        status=update.status,
-        result=update.result,
-        error_code=update.error_code,
-        error_message=update.error_message,
-        amount_credits=update.amount_credits,
+    scheduled = GenerationJob.objects.filter(pk=job.id, status__in=ACTIVE_STATES).update(
+        next_poll_at=timezone.now() + timedelta(seconds=delay),
     )
-    if update.status in (GenerationJob.Status.QUEUED, GenerationJob.Status.PROCESSING):
-        raise self.retry(countdown=15)
+    if scheduled:
+        try:
+            poll_provider_job.apply_async(args=[job.id], countdown=delay)
+        except (OperationalError, OSError):
+            polling_queue_failed(job.id)
+
+
+@shared_task
+def recover_provider_polls() -> int:
+    due_ids = list(
+        GenerationJob.objects.filter(status__in=ACTIVE_STATES)
+        .exclude(provider_job_id="")
+        .filter(Q(next_poll_at__lte=timezone.now()) | Q(next_poll_at__isnull=True))
+        .order_by("next_poll_at", "id")
+        .values_list("id", flat=True)[:100]
+    )
+    for job_id in due_ids:
+        poll_provider_job.run(job_id)
+    return len(due_ids)

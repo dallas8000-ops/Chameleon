@@ -52,10 +52,32 @@ timestamp window before applying updates. Without an API key, a request persists
 `blocked_provider_not_configured` job and no provider request or worker task is
 made. Run a Celery worker from this directory with
 `python -m celery -A chameleon worker -l info`.
+Also run `python -m celery -A chameleon beat -l info` (one scheduler instance):
+every 30 seconds it sweeps due durable polling schedules. Accepted provider IDs
+and polling due times are committed together before dispatch, so a broker outage
+or worker crash cannot erase the need to track an accepted paid request.
+
+The broker-independent recovery command `python manage.py poll_generation_jobs`
+checks up to 100 due jobs directly. Operators can run it repeatedly (or from a
+scheduled Railway job) during broker outages. Concurrent pollers honor a
+60-second persisted lease; HTTP requests time out at 20 seconds. Status-fetch
+errors retain the last provider state and retry with backoff capped at 240
+seconds. After 80 polls, local tracking stops with `failed` and
+`provider_poll_exhausted`; this is **not** evidence of provider rendering failure.
+Use `python manage.py poll_generation_jobs --resume-job <id>` to reset that
+tracking budget and check the existing provider job, never resubmit generation.
+Real provider terminal failures cannot be resumed with this command.
 
 Magic Hour Talking Photo animates an existing portrait with an existing audio
-file; it does not synthesize a spoken script. Presenter requests therefore need
-documented `image_file_path` and `audio_file_path` inputs. The API returns an
+file; it does not synthesize a spoken script. The presenter endpoint accepts only
+`image_asset_id` and `audio_asset_id`, verifies both belong to the requested
+workspace, and checks their media types. Caller-chosen provider paths and URLs
+are rejected, including when asset IDs are supplied. Studio currently supports
+image/video uploads, not audio ingestion; no secure local-Asset-to-Magic-Hour
+upload mapping exists yet. Accordingly presenter requests with otherwise valid
+owned inputs return a structured `capability_unavailable` block, without paid
+submission. Legacy presenter jobs also cannot submit arbitrary input paths, and
+those paths are not returned on job reads. The API returns an
 honest job state; the worker polls provider status without inventing progress
 or completed assets. Provider errors are retained as structured codes and
 messages. Usage ledger writes and repeated provider updates are idempotent.

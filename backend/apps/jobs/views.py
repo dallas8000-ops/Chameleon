@@ -16,7 +16,13 @@ from apps.jobs.serializers import (
     ImageGenerationSerializer,
     PresenterGenerationSerializer,
 )
-from apps.jobs.services import UnsupportedCapability, apply_provider_update, submit_generation_job
+from apps.jobs.services import (
+    PresenterAssetInvalid,
+    PresenterAssetNotFound,
+    UnsupportedCapability,
+    apply_provider_update,
+    submit_generation_job,
+)
 from apps.studio.services import ProjectService
 
 
@@ -230,10 +236,19 @@ class GenerationSubmissionView(APIView):
                 capability=self.capability,
                 payload=data,
             )
-        except UnsupportedCapability:
+        except PresenterAssetNotFound:
+            return not_found()
+        except PresenterAssetInvalid as error:
+            return error_response(
+                code="validation_error",
+                message="Invalid presenter assets.",
+                errors=error.errors,
+                status_code=400,
+            )
+        except UnsupportedCapability as error:
             return error_response(
                 code="capability_unavailable",
-                message="The configured provider does not support this generation capability.",
+                message=str(error),
                 errors=None,
                 status_code=409,
             )

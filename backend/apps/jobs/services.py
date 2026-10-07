@@ -2,6 +2,7 @@ from django.db import transaction
 
 from apps.jobs.models import GenerationJob, ProviderEvent, UsageLedgerEntry
 from apps.providers.registry import ProviderRegistry
+from apps.studio.models import Asset
 
 
 class UnsupportedCapability(Exception):
@@ -10,6 +11,38 @@ class UnsupportedCapability(Exception):
 
 class IdempotencyConflict(Exception):
     pass
+
+
+class PresenterAssetNotFound(Exception):
+    pass
+
+
+class PresenterAssetInvalid(Exception):
+    def __init__(self, errors: dict):
+        super().__init__("Invalid presenter assets.")
+        self.errors = errors
+
+
+def validate_presenter_assets(*, workspace_id: int, payload: dict) -> None:
+    assets = {}
+    for field in ("image_asset_id", "audio_asset_id"):
+        asset = Asset.objects.filter(pk=payload.get(field), workspace_id=workspace_id).first()
+        if asset is None:
+            raise PresenterAssetNotFound
+        assets[field] = asset
+    image = assets["image_asset_id"]
+    audio = assets["audio_asset_id"]
+    errors = {}
+    if image.asset_type != "image" or image.content_type not in {
+        "image/png", "image/jpeg", "image/webp", "image/gif",
+    }:
+        errors["image_asset_id"] = ["A supported workspace-owned image is required."]
+    if audio.asset_type != "audio" or audio.content_type not in {
+        "audio/mpeg", "audio/wav", "audio/ogg",
+    }:
+        errors["audio_asset_id"] = ["A supported workspace-owned audio asset is required."]
+    if errors:
+        raise PresenterAssetInvalid(errors)
 
 
 def submit_generation_job(
@@ -24,6 +57,11 @@ def submit_generation_job(
     provider = ProviderRegistry.get(provider_name)
     if not provider.supports_capability(capability):
         raise UnsupportedCapability(capability)
+    if capability == "presenter.generate":
+        validate_presenter_assets(workspace_id=workspace_id, payload=payload)
+        raise UnsupportedCapability(
+            "Presenter generation is unavailable until secure workspace asset upload/mapping to Magic Hour is configured."
+        )
 
     job = GenerationJob.objects.create(
         workspace_id=workspace_id,
@@ -119,13 +157,22 @@ def apply_provider_update(
             GenerationJob.Status.CANCELED,
         },
     }
+    if job.status == GenerationJob.Status.FAILED and job.error_code == "provider_poll_exhausted":
+        allowed_transitions[GenerationJob.Status.FAILED] = {
+            GenerationJob.Status.QUEUED, GenerationJob.Status.PROCESSING,
+            GenerationJob.Status.COMPLETED, GenerationJob.Status.FAILED, GenerationJob.Status.CANCELED,
+        }
     if status in allowed_transitions.get(job.status, set()):
         job.status = status
         job.error_code = error_code
         job.error_message = error_message
         if status == GenerationJob.Status.COMPLETED and result is not None:
             job.result = result
-        job.save(update_fields=["status", "error_code", "error_message", "result", "updated_at"])
+        if status in {
+            GenerationJob.Status.COMPLETED, GenerationJob.Status.FAILED, GenerationJob.Status.CANCELED,
+        }:
+            job.next_poll_at = None
+        job.save(update_fields=["status", "error_code", "error_message", "result", "next_poll_at", "updated_at"])
 
     if amount_credits is not None:
         if isinstance(amount_credits, bool) or not isinstance(amount_credits, int) or amount_credits < 0:

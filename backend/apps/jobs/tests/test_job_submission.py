@@ -8,7 +8,7 @@ from apps.jobs.models import GenerationJob, UsageLedgerEntry
 from apps.jobs.services import UnsupportedCapability, submit_generation_job
 from apps.jobs.tasks import poll_provider_job, submit_provider_job
 from apps.providers.base import ProviderJobUpdate, ProviderSubmission
-from apps.studio.models import Project, Scene
+from apps.studio.models import Asset, Project, Scene
 
 
 class JobSubmissionTests(TestCase):
@@ -136,7 +136,7 @@ class JobSubmissionTests(TestCase):
         self.assertEqual(UsageLedgerEntry.objects.filter(job=job).count(), 1)
 
     @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
-    def test_presenter_job_uses_documented_image_and_audio_inputs(self):
+    def test_presenter_rejects_arbitrary_provider_paths(self):
         self.client.force_login(self.owner)
         payload = {
             "workspace_id": self.workspace.id,
@@ -149,15 +149,98 @@ class JobSubmissionTests(TestCase):
         }
         with patch("apps.jobs.tasks.submit_provider_job.delay") as submit:
             response = self.post("/api/jobs/presenter-generation/", payload)
-        self.assertEqual(response.status_code, 202)
-        job = GenerationJob.objects.get(pk=response.json()["id"])
-        self.assertEqual(job.capability, "presenter.generate")
-        self.assertEqual(job.scene_id, self.scene.id)
-        self.assertEqual(
-            job.payload,
-            {**payload, "start_seconds": 0.0, "generation_mode": "realistic"},
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "validation_error")
+        self.assertEqual(GenerationJob.objects.count(), 0)
+        submit.assert_not_called()
+
+    @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
+    def test_presenter_paths_are_rejected_even_with_owned_asset_ids(self):
+        self.client.force_login(self.owner)
+        image = self.asset()
+        audio = self.asset(asset_type="audio", content_type="audio/mpeg")
+        with patch("apps.jobs.tasks.submit_provider_job.delay") as submit:
+            for path in ("api-assets/other-tenant.png", "https://foreign.example/person.png", "C:\\private\\face.png"):
+                response = self.post("/api/jobs/presenter-generation/", {
+                    "workspace_id": self.workspace.id, "image_asset_id": image.id, "audio_asset_id": audio.id,
+                    "image_file_path": path, "start_seconds": 0, "end_seconds": 5,
+                })
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("image_file_path", response.json()["errors"])
+        submit.assert_not_called()
+        self.assertEqual(GenerationJob.objects.count(), 0)
+
+    def test_legacy_presenter_input_paths_are_not_exposed_on_job_reads(self):
+        job = GenerationJob.objects.create(
+            workspace=self.workspace, capability="presenter.generate",
+            payload={
+                "image_file_path": "api-assets/foreign.png",
+                "audio_file_path": "https://foreign.example/voice.mp3",
+                "script_text": "Hello",
+            },
         )
-        submit.assert_called_once_with(job.id)
+        self.client.force_login(self.owner)
+        response = self.client.get(f"/api/jobs/{job.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["payload"], {"script_text": "Hello"})
+
+    def asset(self, workspace=None, asset_type="image", content_type="image/png"):
+        return Asset.objects.create(
+            workspace=workspace or self.workspace,
+            asset_type=asset_type,
+            content_type=content_type,
+            name="Input",
+            storage_key=f"private/{Asset.objects.count() + 1}",
+            size_bytes=100,
+        )
+
+    @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
+    def test_presenter_asset_ids_are_workspace_scoped(self):
+        self.client.force_login(self.owner)
+        other = Workspace.objects.create(name="Other")
+        image = self.asset()
+        foreign = self.asset(workspace=other)
+        base = {
+            "workspace_id": self.workspace.id, "image_asset_id": image.id,
+            "audio_asset_id": foreign.id, "start_seconds": 0, "end_seconds": 5,
+        }
+        with patch("apps.jobs.tasks.submit_provider_job.delay") as submit:
+            hidden = self.post("/api/jobs/presenter-generation/", base)
+            missing = self.post("/api/jobs/presenter-generation/", {**base, "audio_asset_id": 999999})
+        self.assertEqual(hidden.status_code, 404)
+        self.assertEqual(hidden.json(), missing.json())
+        submit.assert_not_called()
+
+    @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
+    def test_presenter_rejects_wrong_media_types(self):
+        self.client.force_login(self.owner)
+        video = self.asset(asset_type="video", content_type="video/mp4")
+        image = self.asset()
+        with patch("apps.jobs.tasks.submit_provider_job.delay") as submit:
+            for image_id, audio_id in ((video.id, image.id), (image.id, video.id)):
+                response = self.post("/api/jobs/presenter-generation/", {
+                    "workspace_id": self.workspace.id, "image_asset_id": image_id,
+                    "audio_asset_id": audio_id, "start_seconds": 0, "end_seconds": 5,
+                })
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["code"], "validation_error")
+        submit.assert_not_called()
+
+    @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
+    def test_presenter_owned_assets_are_blocked_without_secure_provider_bridge(self):
+        self.client.force_login(self.owner)
+        image = self.asset()
+        # A future audio ingestion flow still must not bypass the missing provider bridge.
+        audio = self.asset(asset_type="audio", content_type="audio/mpeg")
+        with patch("apps.jobs.tasks.submit_provider_job.delay") as submit:
+            response = self.post("/api/jobs/presenter-generation/", {
+                "workspace_id": self.workspace.id, "image_asset_id": image.id,
+                "audio_asset_id": audio.id, "start_seconds": 0, "end_seconds": 5,
+            })
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "capability_unavailable")
+        self.assertEqual(GenerationJob.objects.count(), 0)
+        submit.assert_not_called()
 
     def test_reviewer_cannot_submit_and_foreign_job_is_not_found(self):
         self.client.force_login(self.reviewer)

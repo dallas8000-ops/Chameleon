@@ -40,6 +40,8 @@ class GenerationJob(models.Model):
     provider_name = models.CharField(max_length=64, blank=True)
     provider_job_id = models.CharField(max_length=120, blank=True)
     provider_submission_started_at = models.DateTimeField(null=True, blank=True)
+    next_poll_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    poll_attempts = models.PositiveIntegerField(default=0)
     quoted_credits = models.PositiveIntegerField(default=0)
     error_code = models.CharField(max_length=80, blank=True)
     error_message = models.TextField(blank=True)

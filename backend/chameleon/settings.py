@@ -99,6 +99,12 @@ CELERY_BROKER_URL = os.environ.get(
 )
 MAGIC_HOUR_API_KEY = os.environ.get("MAGIC_HOUR_API_KEY", "")
 MAGIC_HOUR_WEBHOOK_SECRET = os.environ.get("MAGIC_HOUR_WEBHOOK_SECRET", "")
+CELERY_BEAT_SCHEDULE = {
+    "recover-provider-polls": {
+        "task": "apps.jobs.tasks.recover_provider_polls",
+        "schedule": 30.0,
+    },
+}
 
 if RUNNING_TESTS:
     CACHES = {

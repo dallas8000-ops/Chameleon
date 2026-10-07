@@ -15,8 +15,8 @@ class ImageGenerationSerializer(JobBaseSerializer):
 
 class PresenterGenerationSerializer(JobBaseSerializer):
     script_text = serializers.CharField(max_length=20000, required=False, allow_blank=True)
-    image_file_path = serializers.CharField(max_length=2000, allow_blank=False)
-    audio_file_path = serializers.CharField(max_length=2000, allow_blank=False)
+    image_asset_id = serializers.IntegerField(min_value=1)
+    audio_asset_id = serializers.IntegerField(min_value=1)
     start_seconds = serializers.FloatField(min_value=0)
     end_seconds = serializers.FloatField(min_value=0.1)
     generation_mode = serializers.ChoiceField(
@@ -25,6 +25,15 @@ class PresenterGenerationSerializer(JobBaseSerializer):
     )
     prompt = serializers.CharField(max_length=4000, required=False, allow_blank=True)
     name = serializers.CharField(max_length=120, required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            unknown = set(data) - set(self.fields)
+            if unknown:
+                raise serializers.ValidationError(
+                    {field: ["Unsupported field. Use workspace-owned asset identifiers."] for field in unknown}
+                )
+        return super().to_internal_value(data)
 
     def validate(self, attrs):
         if attrs["end_seconds"] <= attrs["start_seconds"]:
@@ -55,3 +64,12 @@ class GenerationJobSerializer(serializers.Serializer):
     error_message = serializers.CharField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if instance.capability == "presenter.generate":
+            data["payload"] = {
+                key: value for key, value in data["payload"].items()
+                if key in PresenterGenerationSerializer().fields
+            }
+        return data
