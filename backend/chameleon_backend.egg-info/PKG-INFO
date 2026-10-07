@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: chameleon-backend
+Version: 0.1.0
+Summary: Chameleon backend scaffold
+License: MIT
+Description-Content-Type: text/markdown
+
+Chameleon backend package
+
+This directory is a Python package root for editable install during development.
