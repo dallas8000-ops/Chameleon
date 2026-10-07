@@ -7,7 +7,7 @@ from apps.jobs.tasks import poll_provider_job, recover_provider_polls
 
 
 class Command(BaseCommand):
-    help = "Poll due provider jobs directly, without requiring a working Celery broker."
+    help = "Recover stale submissions and poll due provider jobs without requiring a working Celery broker."
 
     def add_arguments(self, parser):
         parser.add_argument("--resume-job", type=int, help="Resume a job whose local polling budget was exhausted.")
@@ -33,4 +33,4 @@ class Command(BaseCommand):
             self.stdout.write(f"Resumed provider tracking for job {job_id}; no generation was resubmitted.")
         else:
             count = recover_provider_polls.run()
-            self.stdout.write(f"Checked {count} due provider jobs.")
+            self.stdout.write(f"Checked stale submissions and polled {count} due provider jobs.")

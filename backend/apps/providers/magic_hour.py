@@ -62,6 +62,11 @@ class MagicHourProvider(BaseMediaProvider):
     def get_generation_update(self, *, job) -> ProviderJobUpdate:
         kind = "image-projects" if job.capability == "image.generate" else "video-projects"
         response = self._request("GET", f"/v1/{kind}/{quote(job.provider_job_id, safe='')}")
+        if response.get("id") != job.provider_job_id:
+            raise ProviderError(
+                "provider_response_invalid",
+                "Magic Hour returned details for an unexpected project identifier.",
+            )
         provider_status = response.get("status")
         status_map = {
             "queued": "queued",

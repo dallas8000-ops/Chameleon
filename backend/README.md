@@ -68,6 +68,44 @@ Use `python manage.py poll_generation_jobs --resume-job <id>` to reset that
 tracking budget and check the existing provider job, never resubmit generation.
 Real provider terminal failures cannot be resumed with this command.
 
+### Interrupted submission reconciliation
+
+Magic Hour's [retry guidance](https://docs.magichour.ai/integration/development-and-testing)
+does not promise deduplicated creation POSTs or a usable `Idempotency-Key`.
+It instructs callers to check project history when acceptance is uncertain.
+Chameleon therefore never automatically resubmits a claimed generation.
+The Beat sweeper and `poll_generation_jobs` command mark claimed
+`pending_provider` jobs with no provider ID as `failed` after five minutes,
+with `provider_submission_outcome_unknown`. Repeated deliveries also detect
+stale claims. The API exposes that structured error only to workspace members.
+This error means possible acceptance/credit charge, **not** provider failure.
+
+Operator runbook (trusted backend shell/database access only; no public
+reconciliation endpoint):
+
+1. Inspect the local job's workspace, submission timestamp and preserved request.
+   Check the authorized Magic Hour account's project history/dashboard or contact
+   provider support. Confirm the matching project and actual ID from that
+   evidence; never infer an ID from a prompt or submit another POST to test it.
+2. Attach a confirmed ID:
+   `python manage.py reconcile_generation_job <job-id> --workspace-id <workspace-id> --provider-job-id <actual-id> --note "<evidence>"`
+   The command requires an eligible unknown job in that exact workspace, checks
+   the provider's corresponding status GET and returned ID, rejects IDs already
+   attached to another job, records an evidence note, and resumes tracking.
+   The GET confirms existence in the configured account, not tenant ownership;
+   operators must verify the history/request match before attaching an ID.
+3. If no ID can be recovered after investigation, explicitly close **local**
+   tracking:
+   `python manage.py reconcile_generation_job <job-id> --workspace-id <workspace-id> --close --note "<investigation and resolution>"`
+   It retains `failed` with `provider_submission_tracking_closed`. It neither
+   cancels a provider project nor claims a refund or grants permission to retry.
+   Keep investigating unresolved possible charges outside automatic generation.
+
+Both actions retain a private database audit record and never issue generation
+POSTs. They reject already resolved jobs and require a non-empty evidence note.
+An original worker response arriving after stale detection can restore tracking
+using the real returned ID, but cannot overwrite an operator-closed job.
+
 Magic Hour Talking Photo animates an existing portrait with an existing audio
 file; it does not synthesize a spoken script. The presenter endpoint accepts only
 `image_asset_id` and `audio_asset_id`, verifies both belong to the requested

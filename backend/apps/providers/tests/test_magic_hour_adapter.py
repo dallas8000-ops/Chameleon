@@ -9,6 +9,23 @@ from apps.providers.magic_hour import MagicHourProvider
 
 
 class MagicHourAdapterTests(SimpleTestCase):
+    @override_settings(MAGIC_HOUR_API_KEY="private-test-key")
+    @patch("apps.providers.magic_hour.urlopen")
+    def test_status_read_rejects_mismatched_provider_id(self, urlopen):
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = json.dumps(
+            {"id": "wrong-project", "status": "complete", "credits_charged": 5, "downloads": []}
+        ).encode()
+        urlopen.return_value = response
+        with self.assertRaises(ProviderError) as context:
+            MagicHourProvider().get_generation_update(
+                job=SimpleNamespace(capability="image.generate", provider_job_id="expected-project")
+            )
+        self.assertEqual(context.exception.code, "provider_response_invalid")
+        self.assertEqual(urlopen.call_args.args[0].method, "GET")
+
     @override_settings(MAGIC_HOUR_API_KEY="")
     def test_missing_key_disables_provider(self):
         provider = MagicHourProvider()

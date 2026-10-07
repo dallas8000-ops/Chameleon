@@ -15,17 +15,50 @@ from apps.providers.registry import ProviderRegistry
 logger = logging.getLogger(__name__)
 POLL_LIMIT = 80
 ACTIVE_STATES = (GenerationJob.Status.QUEUED, GenerationJob.Status.PROCESSING)
+SUBMISSION_STALE_SECONDS = 300
+SUBMISSION_UNKNOWN_CODE = "provider_submission_outcome_unknown"
+
+
+def mark_stale_submission(job: GenerationJob) -> bool:
+    if (
+        job.status != GenerationJob.Status.PENDING_PROVIDER
+        or job.provider_job_id
+        or job.provider_submission_started_at is None
+        or job.provider_submission_started_at > timezone.now() - timedelta(seconds=SUBMISSION_STALE_SECONDS)
+    ):
+        return False
+    job.status = GenerationJob.Status.FAILED
+    job.error_code = SUBMISSION_UNKNOWN_CODE
+    job.error_message = (
+        "Submission was interrupted; Magic Hour may have accepted and charged this request. "
+        "Do not resubmit. An operator must check provider history and use reconcile_generation_job "
+        "to attach the actual provider ID or close local tracking."
+    )
+    job.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+    logger.warning("Provider submission outcome unknown for job %s; operator reconciliation required.", job.id)
+    return True
+
+
+def recover_stale_submissions() -> int:
+    with transaction.atomic():
+        stale = list(
+            GenerationJob.objects.select_for_update().filter(
+                status=GenerationJob.Status.PENDING_PROVIDER,
+                provider_job_id="",
+                provider_submission_started_at__lte=timezone.now() - timedelta(seconds=SUBMISSION_STALE_SECONDS),
+            ).order_by("provider_submission_started_at", "id")[:100]
+        )
+        return sum(mark_stale_submission(job) for job in stale)
 
 
 @shared_task
 def submit_provider_job(job_id: int) -> None:
     with transaction.atomic():
         job = GenerationJob.objects.select_for_update().filter(pk=job_id).first()
-        if (
-            job is None
-            or job.status != GenerationJob.Status.PENDING_PROVIDER
-            or job.provider_submission_started_at is not None
-        ):
+        if job is None or job.status != GenerationJob.Status.PENDING_PROVIDER:
+            return
+        if job.provider_submission_started_at is not None:
+            mark_stale_submission(job)
             return
         provider = ProviderRegistry.get(job.provider_name)
         if not provider.is_configured():
@@ -61,14 +94,20 @@ def submit_provider_job(job_id: int) -> None:
 
     with transaction.atomic():
         current = GenerationJob.objects.select_for_update().get(pk=job.id)
-        if current.status != GenerationJob.Status.PENDING_PROVIDER:
+        recoverable_unknown = (
+            current.status == GenerationJob.Status.FAILED and current.error_code == SUBMISSION_UNKNOWN_CODE
+            and not current.provider_job_id
+        )
+        if current.status != GenerationJob.Status.PENDING_PROVIDER and not recoverable_unknown:
             return
         current.status = GenerationJob.Status.QUEUED
+        current.error_code = ""
+        current.error_message = ""
         current.provider_job_id = submission.provider_job_id
         current.quoted_credits = submission.quoted_credits
         current.next_poll_at = timezone.now()
         current.save(update_fields=[
-            "status", "provider_job_id", "quoted_credits", "next_poll_at", "updated_at",
+            "status", "error_code", "error_message", "provider_job_id", "quoted_credits", "next_poll_at", "updated_at",
         ])
     try:
         poll_provider_job.delay(job.id)
@@ -149,6 +188,7 @@ def poll_provider_job(job_id: int) -> None:
 
 @shared_task
 def recover_provider_polls() -> int:
+    recover_stale_submissions()
     due_ids = list(
         GenerationJob.objects.filter(status__in=ACTIVE_STATES)
         .exclude(provider_job_id="")
