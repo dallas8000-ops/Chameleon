@@ -12,6 +12,9 @@ Current API foundation:
 - `GET /api/auth/session/`
 - `GET /api/workspaces/`
 - `PATCH /api/workspaces/<id>/`
+- `POST /api/jobs/image-generation/`
+- `POST /api/jobs/presenter-generation/`
+- `GET /api/jobs/<id>/`
 
 The backend uses a custom email-based user model in `apps.accounts`, session authentication with CSRF protection, and workspace membership RBAC.
 
@@ -35,6 +38,32 @@ login/register scope. Prefer a separate Redis database from Celery.
 Only tests use an explicit in-memory cache, cleared between auth tests.
 DRF's cache-based throttle is an abuse guard, not an exact concurrent request
 quota; deployment edge rate limiting should supplement it.
+
+## Generation jobs and provider setup
+
+Generation requests first persist a workspace-scoped job, then submit it to the
+Celery worker. The worker uses only Magic Hour's documented
+`POST /v1/ai-image-generator`, `POST /v1/ai-talking-photo`, and corresponding
+image/video project status endpoints. Configure `MAGIC_HOUR_API_KEY` only in
+the backend environment; it is optional. Set `MAGIC_HOUR_WEBHOOK_SECRET` to
+enable signed callback handling at `/api/jobs/webhooks/magic-hour/`. The
+endpoint verifies Magic Hour's documented HMAC-SHA256 signature and five-minute
+timestamp window before applying updates. Without an API key, a request persists a
+`blocked_provider_not_configured` job and no provider request or worker task is
+made. Run a Celery worker from this directory with
+`python -m celery -A chameleon worker -l info`.
+
+Magic Hour Talking Photo animates an existing portrait with an existing audio
+file; it does not synthesize a spoken script. Presenter requests therefore need
+documented `image_file_path` and `audio_file_path` inputs. The API returns an
+honest job state; the worker polls provider status without inventing progress
+or completed assets. Provider errors are retained as structured codes and
+messages. Usage ledger writes and repeated provider updates are idempotent.
+`quoted_credits` is populated from Magic Hour's submission response and may be
+adjusted when rendering finishes; it is zero while a job is waiting for provider
+acceptance. Completed results retain provider download URLs, which are temporary
+(typically expiring within 24 hours); this task does not copy outputs into
+durable `Asset` storage.
 
 ## Same-origin browser contract
 

@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "apps.accounts.apps.AccountsConfig",
     "apps.studio.apps.StudioConfig",
+    "apps.jobs.apps.JobsConfig",
     "api",
 ]
 
@@ -92,7 +93,12 @@ else:
         raise RuntimeError("DATABASE_URL environment variable must be set in production")
     DATABASES = {"default": dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
 
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_BROKER_URL = os.environ.get(
+    "CELERY_BROKER_URL",
+    os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+)
+MAGIC_HOUR_API_KEY = os.environ.get("MAGIC_HOUR_API_KEY", "")
+MAGIC_HOUR_WEBHOOK_SECRET = os.environ.get("MAGIC_HOUR_WEBHOOK_SECRET", "")
 
 if RUNNING_TESTS:
     CACHES = {
