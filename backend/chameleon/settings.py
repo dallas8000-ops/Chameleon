@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "apps.accounts.apps.AccountsConfig",
+    "apps.studio.apps.StudioConfig",
     "api",
 ]
 
@@ -129,6 +130,9 @@ REST_FRAMEWORK = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 STATIC_URL = "/static/"
+# Private upload storage (local filesystem); no MEDIA_URL is served.
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "private_media"))
+STUDIO_MAX_UPLOAD_BYTES = int(os.environ.get("STUDIO_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
 USE_TZ = True
 TIME_ZONE = "UTC"
 
