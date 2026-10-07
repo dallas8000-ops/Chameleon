@@ -1,10 +1,13 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools >= 61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.poetry]
+[project]
 name = "chameleon-backend"
 version = "0.1.0"
+description = "Chameleon backend scaffold"
+readme = "README.md"
+license = { text = "MIT" }
 
-[tool.black]
-line-length = 88
+[tool.setuptools.packages.find]
+where = [""]
