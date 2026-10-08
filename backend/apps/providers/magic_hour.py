@@ -34,7 +34,7 @@ class MagicHourProvider(BaseMediaProvider):
             "model": "z-image-turbo",
             "aspect_ratio": aspect_ratio,
             "resolution": "640px",
-            "style": {"prompt": prompt},
+            "style": {"prompt": prompt, "tool": "general"},
         }
         if name:
             body["name"] = name
@@ -99,14 +99,14 @@ class MagicHourProvider(BaseMediaProvider):
 
     def _submission(self, response: dict) -> ProviderSubmission:
         provider_job_id = response.get("id")
-        quoted_credits = response.get("credits_charged", 0)
+        quoted_credits = response.get("credits_charged")
         if not isinstance(provider_job_id, str) or not provider_job_id:
             raise ProviderError(
                 "provider_response_invalid",
                 "Magic Hour accepted no usable job identifier; check provider job status before retrying.",
             )
         if isinstance(quoted_credits, bool) or not isinstance(quoted_credits, int) or quoted_credits < 0:
-            quoted_credits = 0
+            quoted_credits = None
         return ProviderSubmission(
             provider_job_id=provider_job_id,
             quoted_credits=quoted_credits,

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ProviderSubmission:
     provider_job_id: str
-    quoted_credits: int
+    quoted_credits: int | None
     raw_response: dict
 
 

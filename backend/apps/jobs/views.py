@@ -14,6 +14,8 @@ from apps.jobs.models import GenerationJob
 from apps.jobs.serializers import (
     GenerationJobSerializer,
     ImageGenerationSerializer,
+    ImageSubmissionSerializer,
+    IngestionRetrySerializer,
     PresenterGenerationSerializer,
 )
 from apps.jobs.services import (
@@ -24,6 +26,7 @@ from apps.jobs.services import (
     submit_generation_job,
 )
 from apps.studio.services import ProjectService
+from apps.jobs.quoting import ContractError
 
 
 def not_found() -> Response:
@@ -49,7 +52,9 @@ class GenerationJobView(APIView):
         ).first()
         if job is None:
             return not_found()
-        return Response(GenerationJobSerializer(job).data)
+        response = Response(GenerationJobSerializer(job).data)
+        response["Cache-Control"] = "private, no-store"
+        return response
 
 
 class MagicHourWebhookView(APIView):
@@ -182,7 +187,9 @@ class MagicHourWebhookView(APIView):
             ),
             amount_credits=credits if mapped_status == GenerationJob.Status.COMPLETED else None,
         )
-        return Response({"success": True, "id": updated_job.id, "status": updated_job.status})
+        response = Response({"success": True, "id": updated_job.id, "status": updated_job.status})
+        response["Cache-Control"] = "private, no-store"
+        return response
 
     @staticmethod
     def _invalid_signature() -> Response:
@@ -280,6 +287,117 @@ class GenerationSubmissionView(APIView):
 class ImageGenerationView(GenerationSubmissionView):
     serializer_class = ImageGenerationSerializer
     capability = "image.generate"
+
+    def post(self, request):
+        import re
+        from apps.jobs.quoting import accept_quote
+        serializer = ImageSubmissionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid(serializer)
+        key = request.headers.get("Idempotency-Key", "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", key):
+            return contract_response("validation_error", "A bounded Idempotency-Key is required.", 400)
+        payload = dict(serializer.validated_data)
+        quote_id = payload.pop("quote_id")
+        try:
+            job = accept_quote(request.user, payload, quote_id, key)
+        except ContractError as error:
+            return contract_response(error.code, error.message, error.status)
+        response = Response(GenerationJobSerializer(job).data, status=202)
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+def contract_response(code, message, status_code=409):
+    response = error_response(code=code, message=message, errors={}, status_code=status_code)
+    if code in {"quote_changed", "quote_expired"}:
+        response.data["requires_requote"] = True
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
+class ImageQuoteView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = "generation_quote"
+
+    def post(self, request):
+        from apps.jobs.quoting import create_quote, quote_projection
+        if len(request.body) > 16 * 1024:
+            return contract_response("validation_error", "Quote request is too large.", 413)
+        serializer = ImageGenerationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid(serializer)
+        try:
+            quote = create_quote(request.user, dict(serializer.validated_data))
+        except ContractError as error:
+            response = contract_response(error.code, error.message, error.status)
+            response.data.update({"available": False, "quote": None})
+            return response
+        response = Response(quote_projection(quote))
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class GenerationCapabilitiesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from apps.jobs.quoting import PARAMETERS, active_tariff, validate_scope
+        workspace_id = request.query_params.get("workspace_id", "")
+        if not workspace_id.isdigit() or int(workspace_id) < 1:
+            return contract_response("validation_error", "A workspace ID is required.", 400)
+        workspace_id = int(workspace_id)
+        try:
+            validate_scope(request.user, {"workspace_id": workspace_id}, write=False)
+        except ContractError as error:
+            return contract_response(error.code, error.message, error.status)
+        try:
+            version, reason = active_tariff()["pricing_version"], None
+        except ContractError as error:
+            version, reason = None, error.code
+        response = Response({
+            "workspace_id": workspace_id, "capabilities": [
+                {"capability": "image.generate", "available": reason is None,
+                 "can_submit": reason is None and ProjectService.can_write(request.user, workspace_id),
+                 "reason_code": reason, "provider": "magic_hour", "pricing_version": version,
+                 "supported_parameters": {**PARAMETERS, "aspect_ratios": ["1:1", "16:9", "9:16"]}},
+                {"capability": "presenter.generate", "available": False, "can_submit": False,
+                 "reason_code": "capability_unavailable"},
+            ],
+        })
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class AssetIngestionRetryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, job_id):
+        from django.db import transaction
+        from django.utils import timezone
+        serializer = IngestionRetrySerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid(serializer)
+        with transaction.atomic():
+            job = GenerationJob.objects.select_for_update().filter(
+                pk=job_id, workspace__memberships__user=request.user,
+            ).first()
+            if job is None:
+                return not_found()
+            if not ProjectService.can_write(request.user, job.workspace_id):
+                return contract_response("workspace_read_only", "Your role cannot modify this workspace.", 403)
+            if job.status != "completed" or not job.provider_job_id:
+                return contract_response("result_unavailable", "Only confirmed completed jobs can retry saving.")
+            if job.asset_status == "ready":
+                return Response(GenerationJobSerializer(job).data)
+            if job.asset_status == "failed" and not GenerationJobSerializer().get_asset_retryable(job):
+                return contract_response("result_download_policy", "Operator correction is required before saving.")
+            if job.asset_status not in {"pending", "ingesting"}:
+                job.asset_status = "pending"
+                job.asset_attempts = 0
+                job.asset_next_attempt_at = timezone.now()
+                job.save(update_fields=["asset_status", "asset_attempts", "asset_next_attempt_at"])
+        return Response(GenerationJobSerializer(job).data, status=202)
 
 
 class PresenterGenerationView(GenerationSubmissionView):

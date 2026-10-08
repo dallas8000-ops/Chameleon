@@ -33,6 +33,16 @@ const baseRoutes = {
   ...csrf,
   "GET /api/projects/5/": json(project),
   "GET /api/assets/?workspace_id=11": json([photo]),
+  "GET /api/jobs/capabilities/?workspace_id=11": json({ capabilities: [{ capability: "image.generate", available: false, can_submit: false, reason_code: "pricing_unavailable" }] }),
+};
+const quoteRoutes = {
+  "GET /api/jobs/capabilities/?workspace_id=11": json({ capabilities: [{ capability: "image.generate", available: true, can_submit: true }] }),
+  "POST /api/jobs/image-generation/quote/": json({
+    quote_id: "quote-1", estimated_credits: 4, pricing_version: "test",
+    expires_at: new Date(Date.now() + 300000).toISOString(), price_guaranteed: false,
+    parameters: { model: "z-image-turbo", resolution: "640px", image_count: 1 },
+    basis: { description: "Test basis" },
+  }),
 };
 const exportRecord = { id: 3, project_id: 5, status: "queued", format: "9:16", settings: {}, error_code: "", error_message: "", video_available: false, subtitles_available: false, created_at: "", updated_at: "" };
 const jobBody = (status: string, extra: Record<string, unknown> = {}) => ({
@@ -59,7 +69,7 @@ test("image generation is blocked without a trustworthy cost estimate", async ()
   const button = (await screen.findByRole("button", { name: /generate image/i })) as HTMLButtonElement;
   expect(button.disabled).toBe(true);
   expect(screen.getByText(/cost estimate unavailable/i)).toBeTruthy();
-  expect(calls.some((call) => call.url.includes("/jobs/"))).toBe(false);
+  expect(calls.some((call) => call.method === "POST" && call.url.includes("/jobs/"))).toBe(false);
 });
 
 test("presenter generation is shown as unavailable with no submit control", async () => {
@@ -70,37 +80,39 @@ test("presenter generation is shown as unavailable with no submit control", asyn
   expect(screen.queryByRole("button", { name: /generate presenter/i })).toBeNull();
 });
 
-test("explains that generated media cannot yet become scene assets", async () => {
+test("explains that generated media requires private asset readiness", async () => {
   installFetch(baseRoutes);
   renderAt("/app/projects/5/studio");
-  expect(await screen.findByText(/generated results are temporary/i)).toBeTruthy();
+  expect(await screen.findByText(/only after private saving is ready/i)).toBeTruthy();
 });
 
 test("quoted generation shows the quote, provider-not-configured state, and no fake success", async () => {
   installFetch({
     ...csrf,
+    ...quoteRoutes,
     "POST /api/jobs/image-generation/": json({ ...jobBody("blocked_provider_not_configured"), code: "provider_not_configured", message: "Not configured", errors: {} }, 409),
   });
   const user = userEvent.setup();
-  render(<GenerationPanel workspaceId={11} projectId={5} quote={{ credits: 4, basis: "Test basis" }} />);
+  render(<GenerationPanel workspaceId={11} projectId={5} />);
 
-  expect(screen.getByText(/4 credits/i)).toBeTruthy();
+  expect(await screen.findByText(/4 credits/i)).toBeTruthy();
   expect(screen.getByText(/test basis/i)).toBeTruthy();
   await user.click(screen.getByRole("button", { name: /generate image/i }));
 
-  expect(await screen.findByText(/configure magic hour api key/i)).toBeTruthy();
-  expect(screen.getByText("blocked_provider_not_configured")).toBeTruthy();
+  expect(await screen.findByText(/Not configured/i)).toBeTruthy();
 });
 
 test("submitted jobs are polled by id until a terminal state and show real results/errors", async () => {
   const { calls } = installFetch({
     ...csrf,
+    ...quoteRoutes,
     "POST /api/jobs/image-generation/": json(jobBody("queued"), 202),
     "GET /api/jobs/77/": [json(jobBody("processing", { quoted_credits: 4 })), json(jobBody("failed", { error_code: "provider_error", error_message: "Provider rejected it" }))],
   });
   const user = userEvent.setup();
-  render(<GenerationPanel workspaceId={11} projectId={5} quote={{ credits: 4, basis: "b" }} pollIntervalMs={20} />);
+  render(<GenerationPanel workspaceId={11} projectId={5} pollIntervalMs={20} />);
 
+  await screen.findByText(/Estimated cost: 4 credits/);
   await user.click(screen.getByRole("button", { name: /generate image/i }));
 
   expect(await screen.findByText("Provider rejected it")).toBeTruthy();
@@ -113,11 +125,13 @@ test("submitted jobs are polled by id until a terminal state and show real resul
 test("polling stops when the panel unmounts", async () => {
   const { calls } = installFetch({
     ...csrf,
+    ...quoteRoutes,
     "POST /api/jobs/image-generation/": json(jobBody("queued"), 202),
     "GET /api/jobs/77/": json(jobBody("processing")),
   });
   const user = userEvent.setup();
-  const view = render(<GenerationPanel workspaceId={11} quote={{ credits: 1, basis: "b" }} pollIntervalMs={20} />);
+  const view = render(<GenerationPanel workspaceId={11} pollIntervalMs={20} />);
+  await screen.findByText(/Estimated cost: 4 credits/);
   await user.click(screen.getByRole("button", { name: /generate image/i }));
   await waitFor(() => expect(calls.some((call) => call.url === "/api/jobs/77/")).toBe(true));
   view.unmount();
@@ -268,4 +282,3 @@ test("a 401 while loading the project re-verifies the session and redirects", as
   renderAt("/app/projects/5/export");
   expect(await screen.findByRole("button", { name: /sign in/i })).toBeTruthy();
 });
-

@@ -66,7 +66,7 @@ function StudioBody({
         canWrite={canWrite}
         onAdded={(scene) => update((current) => ({ scenes: [...current.scenes, scene] }))}
       />
-      <GenerationPanel workspaceId={project.workspace_id} projectId={project.id} canWrite={canWrite} />
+      <GenerationPanel workspaceId={project.workspace_id} projectId={project.id} canWrite={canWrite} onAssetReady={assets.retry} />
       {project.captions.map((caption) => (
         <CaptionEditor
           key={caption.id}
@@ -81,4 +81,3 @@ function StudioBody({
     </>
   );
 }
-

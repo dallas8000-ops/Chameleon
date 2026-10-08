@@ -35,16 +35,12 @@ class JobSubmissionTests(TestCase):
             "prompt": "Studio background",
         }
         with patch("apps.jobs.tasks.submit_provider_job.delay") as submit:
-            response = self.post("/api/jobs/image-generation/", snapshot)
+            response = self.post("/api/jobs/image-generation/quote/", snapshot)
 
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["code"], "provider_not_configured")
-        self.assertEqual(response.json()["status"], "blocked_provider_not_configured")
+        self.assertEqual(response.json()["code"], "pricing_unavailable")
         submit.assert_not_called()
-        job = GenerationJob.objects.get(pk=response.json()["id"])
-        self.assertEqual(job.status, GenerationJob.Status.BLOCKED_PROVIDER_NOT_CONFIGURED)
-        self.assertEqual(job.payload, {**snapshot, "aspect_ratio": "1:1"})
-        self.assertEqual(job.error_code, "provider_not_configured")
+        self.assertFalse(GenerationJob.objects.exists())
 
     @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
     def test_configured_provider_job_is_persisted_before_task_dispatch(self):
@@ -54,10 +50,17 @@ class JobSubmissionTests(TestCase):
         def assert_job_exists(job_id):
             job = GenerationJob.objects.get(pk=job_id)
             self.assertEqual(job.status, GenerationJob.Status.PENDING_PROVIDER)
-            self.assertEqual(job.payload, {**payload, "aspect_ratio": "1:1"})
+            self.assertEqual(job.payload, {**payload, "aspect_ratio": "1:1", "name": "",
+                                          "project_id": None, "scene_id": None})
 
-        with patch("apps.jobs.tasks.submit_provider_job.delay", side_effect=assert_job_exists) as submit:
-            response = self.post("/api/jobs/image-generation/", payload)
+        from apps.jobs.tests.test_generation_contract import tariff
+        with override_settings(GENERATION_IMAGE_TARIFF=tariff(), GENERATION_STORAGE_CONFIRMED=True,
+                               GENERATION_DOWNLOAD_ORIGINS=["https://media.example"]):
+            quote = self.post("/api/jobs/image-generation/quote/", payload).json()["quote_id"]
+            with patch("apps.jobs.tasks.submit_provider_job.delay", side_effect=assert_job_exists) as submit, \
+                 self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post("/api/jobs/image-generation/",
+                    data={**payload, "quote_id": quote}, content_type="application/json", HTTP_IDEMPOTENCY_KEY="once")
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["status"], "pending_provider")
@@ -83,16 +86,19 @@ class JobSubmissionTests(TestCase):
     @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
     def test_worker_queue_failure_is_a_persisted_structured_error(self):
         self.client.force_login(self.owner)
-        with patch("apps.jobs.tasks.submit_provider_job.delay", side_effect=RuntimeError("broker offline")):
-            response = self.post(
-                "/api/jobs/image-generation/",
-                {"workspace_id": self.workspace.id, "prompt": "Studio background"},
-            )
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["code"], "job_queue_unavailable")
+        from apps.jobs.tests.test_generation_contract import tariff
+        payload = {"workspace_id": self.workspace.id, "prompt": "Studio background"}
+        with override_settings(GENERATION_IMAGE_TARIFF=tariff(), GENERATION_STORAGE_CONFIRMED=True,
+                               GENERATION_DOWNLOAD_ORIGINS=["https://media.example"]):
+            quote = self.post("/api/jobs/image-generation/quote/", payload).json()["quote_id"]
+            with patch("apps.jobs.tasks.submit_provider_job.delay", side_effect=RuntimeError("broker offline")), \
+                 self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post("/api/jobs/image-generation/", {**payload, "quote_id": quote},
+                    content_type="application/json", HTTP_IDEMPOTENCY_KEY="once")
+        self.assertEqual(response.status_code, 202)
         job = GenerationJob.objects.get(pk=response.json()["id"])
-        self.assertEqual(job.status, GenerationJob.Status.FAILED)
-        self.assertEqual(job.error_code, "job_queue_unavailable")
+        self.assertEqual(job.status, GenerationJob.Status.PENDING_PROVIDER)
+        self.assertIsNotNone(job.dispatch_at)
 
     def test_unsupported_provider_capability_is_rejected_before_job_creation(self):
         provider = Mock()
@@ -182,7 +188,7 @@ class JobSubmissionTests(TestCase):
         self.client.force_login(self.owner)
         response = self.client.get(f"/api/jobs/{job.id}/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["payload"], {"script_text": "Hello"})
+        self.assertNotIn("payload", response.json())
 
     def asset(self, workspace=None, asset_type="image", content_type="image/png"):
         return Asset.objects.create(
@@ -244,9 +250,10 @@ class JobSubmissionTests(TestCase):
 
     def test_reviewer_cannot_submit_and_foreign_job_is_not_found(self):
         self.client.force_login(self.reviewer)
-        response = self.post(
+        response = self.client.post(
             "/api/jobs/image-generation/",
-            {"workspace_id": self.workspace.id, "prompt": "Background"},
+            {"workspace_id": self.workspace.id, "prompt": "Background", "quote_id": "00000000-0000-0000-0000-000000000001"},
+            content_type="application/json", HTTP_IDEMPOTENCY_KEY="read-only",
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["code"], "workspace_read_only")
@@ -268,6 +275,13 @@ class JobSubmissionTests(TestCase):
 
     @override_settings(MAGIC_HOUR_API_KEY="configured-test-key")
     def test_submission_task_stores_provider_job_id_without_marking_generation_complete(self):
+        from apps.jobs.tests.test_generation_contract import tariff
+        from apps.jobs.quoting import active_tariff
+        config = override_settings(GENERATION_IMAGE_TARIFF=tariff(), GENERATION_STORAGE_CONFIRMED=True,
+                                   GENERATION_DOWNLOAD_ORIGINS=["https://media.example"])
+        config.enable()
+        self.addCleanup(config.disable)
+        snapshot = active_tariff()
         payload = {
             "workspace_id": self.workspace.id,
             "prompt": "Studio background",
@@ -276,10 +290,12 @@ class JobSubmissionTests(TestCase):
         job = GenerationJob.objects.create(
             workspace=self.workspace,
             project=self.project,
+            requested_by=self.owner,
             capability="image.generate",
             status=GenerationJob.Status.PENDING_PROVIDER,
             payload=payload,
             provider_name="magic_hour",
+            quoted_credits=5, accepted_quote={"pricing_version": snapshot["pricing_version"], "basis": snapshot["basis"]},
         )
         provider = Mock()
         provider.is_configured.return_value = True

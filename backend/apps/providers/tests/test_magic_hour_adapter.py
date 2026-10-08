@@ -56,7 +56,7 @@ class MagicHourAdapterTests(SimpleTestCase):
                 "model": "z-image-turbo",
                 "aspect_ratio": "16:9",
                 "resolution": "640px",
-                "style": {"prompt": "A warm studio"},
+                "style": {"prompt": "A warm studio", "tool": "general"},
                 "name": "Background",
             },
         )

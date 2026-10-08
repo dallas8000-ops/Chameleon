@@ -169,7 +169,7 @@ class ExportPipelineTests(StudioFixture):
         asset = self.asset()
         job = GenerationJob.objects.create(
             workspace=self.workspace, project=self.project, capability="image.generate",
-            status="completed", result={"asset_id": asset.id},
+            status="completed", result={"asset_id": asset.id}, asset_status="ready", generated_asset=asset,
         )
         self.scene(generation_job_id=job.id)
         export = self.create_export()

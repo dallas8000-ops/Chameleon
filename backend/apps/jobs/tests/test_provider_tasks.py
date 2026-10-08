@@ -14,15 +14,28 @@ from apps.jobs.models import GenerationJob, UsageLedgerEntry
 from apps.jobs.services import apply_provider_update
 from apps.jobs.tasks import poll_provider_job, recover_provider_polls, submit_provider_job
 from apps.providers.base import ProviderError, ProviderJobUpdate, ProviderSubmission
+from apps.jobs.tests.test_generation_contract import tariff
+from apps.jobs.quoting import active_tariff
 
 
 @override_settings(MAGIC_HOUR_API_KEY="test-key")
 class ProviderTaskTests(TestCase):
     def setUp(self):
+        self.contract_settings = override_settings(
+            GENERATION_IMAGE_TARIFF=tariff(), GENERATION_DOWNLOAD_ORIGINS=["https://media.example"],
+            GENERATION_STORAGE_CONFIRMED=True,
+        )
+        self.contract_settings.enable()
+        self.addCleanup(self.contract_settings.disable)
+        snapshot = active_tariff()
+        requester = get_user_model().objects.create_user(email="task-owner@example.com", password="password")
+        workspace = Workspace.objects.create(name="Studio")
+        WorkspaceMembership.objects.create(user=requester, workspace=workspace, role="owner")
         self.job = GenerationJob.objects.create(
-            workspace=Workspace.objects.create(name="Studio"),
+            workspace=workspace, requested_by=requester,
             capability="image.generate", payload={"prompt": "Studio"},
             provider_name="magic_hour",
+            quoted_credits=5, accepted_quote={"pricing_version": snapshot["pricing_version"], "basis": snapshot["basis"]},
         )
         self.provider = Mock()
         self.provider.is_configured.return_value = True

@@ -1,3 +1,6 @@
+import uuid
+
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -44,6 +47,19 @@ class GenerationJob(models.Model):
     poll_attempts = models.PositiveIntegerField(default=0)
     submission_resolution = models.JSONField(default=dict, blank=True)
     quoted_credits = models.PositiveIntegerField(default=0)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    idempotency_key = models.CharField(max_length=120, blank=True)
+    accepted_quote = models.JSONField(default=dict)
+    provider_reported_credits = models.PositiveIntegerField(null=True)
+    dispatch_at = models.DateTimeField(null=True, db_index=True)
+    asset_status = models.CharField(max_length=24, default="not_requested")
+    asset_error_code = models.CharField(max_length=80, blank=True)
+    asset_attempts = models.PositiveIntegerField(default=0)
+    asset_attempt_token = models.CharField(max_length=32, blank=True)
+    asset_lease_until = models.DateTimeField(null=True)
+    asset_next_attempt_at = models.DateTimeField(null=True, db_index=True)
+    generated_asset = models.OneToOneField("studio.Asset", null=True, on_delete=models.SET_NULL, related_name="generation_job")
+    asset_cleanup_keys = models.JSONField(default=list)
     error_code = models.CharField(max_length=80, blank=True)
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -54,11 +70,36 @@ class GenerationJob(models.Model):
         indexes = [models.Index(fields=["workspace", "created_at"])]
         constraints = [
             models.UniqueConstraint(
+                fields=["workspace", "requested_by", "idempotency_key"],
+                condition=~Q(idempotency_key=""),
+                name="unique_generation_submit_attempt",
+            ),
+            models.UniqueConstraint(
                 fields=["provider_name", "provider_job_id"],
                 condition=~Q(provider_job_id=""),
                 name="unique_provider_job_identifier",
             ),
         ]
+
+
+class GenerationQuote(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    payload = models.JSONField()
+    snapshot = models.JSONField()
+    issued_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True)
+    job = models.OneToOneField(GenerationJob, null=True, on_delete=models.SET_NULL)
+
+
+class GeneratedFileCandidate(models.Model):
+    # Survives tenant/job deletion until the private file is reclaimed.
+    job = models.ForeignKey(GenerationJob, null=True, on_delete=models.SET_NULL)
+    storage_key = models.CharField(max_length=255, unique=True)
+    attempt_token = models.CharField(max_length=32)
+    cleanup_after = models.DateTimeField(null=True)
 
 
 class ProviderEvent(models.Model):

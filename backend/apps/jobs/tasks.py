@@ -60,6 +60,31 @@ def submit_provider_job(job_id: int) -> None:
         if job.provider_submission_started_at is not None:
             mark_stale_submission(job)
             return
+        if job.capability != "image.generate":
+            job.status, job.error_code = "failed", "capability_unavailable"
+            job.save(update_fields=["status", "error_code"])
+            return
+        from apps.jobs.quoting import ContractError, active_tariff, validate_scope
+        try:
+            from apps.accounts.models import WorkspaceMembership
+            if job.requested_by_id is None:
+                raise ContractError("workspace_read_only", "The requester is no longer authorized.")
+            WorkspaceMembership.objects.select_for_update().filter(
+                user_id=job.requested_by_id, workspace_id=job.workspace_id,
+            ).first()
+            validate_scope(job.requested_by, {
+                "workspace_id": job.workspace_id, "project_id": job.project_id, "scene_id": job.scene_id,
+            })
+            current_tariff = active_tariff()
+            if (not job.accepted_quote or current_tariff["pricing_version"] != job.accepted_quote["pricing_version"]
+                    or current_tariff["estimated_credits"] != job.quoted_credits
+                    or current_tariff["basis"] != job.accepted_quote["basis"]):
+                raise ContractError("quote_changed", "Pricing changed before submission.")
+        except ContractError as error:
+            job.status, job.error_code, job.error_message = "failed", error.code, error.message
+            job.dispatch_at = None
+            job.save(update_fields=["status", "error_code", "error_message", "dispatch_at", "updated_at"])
+            return
         provider = ProviderRegistry.get(job.provider_name)
         if not provider.is_configured():
             job.status = GenerationJob.Status.BLOCKED_PROVIDER_NOT_CONFIGURED
@@ -68,7 +93,8 @@ def submit_provider_job(job_id: int) -> None:
             job.save(update_fields=["status", "error_code", "error_message", "updated_at"])
             return
         job.provider_submission_started_at = timezone.now()
-        job.save(update_fields=["provider_submission_started_at", "updated_at"])
+        job.dispatch_at = None
+        job.save(update_fields=["provider_submission_started_at", "dispatch_at", "updated_at"])
 
     try:
         if job.capability == "image.generate":
@@ -85,10 +111,11 @@ def submit_provider_job(job_id: int) -> None:
         else:
             raise ProviderError("capability_unavailable", "This provider does not support the requested capability.")
     except ProviderError as error:
+        unknown = error.code in {"provider_unavailable", "provider_response_invalid"} or error.code.startswith("provider_http_5")
         GenerationJob.objects.filter(pk=job.id, status=GenerationJob.Status.PENDING_PROVIDER).update(
             status=GenerationJob.Status.FAILED,
-            error_code=error.code,
-            error_message=error.message,
+            error_code=SUBMISSION_UNKNOWN_CODE if unknown else error.code,
+            error_message="Submission outcome unknown; operator reconciliation required." if unknown else error.message,
         )
         return
 
@@ -104,10 +131,10 @@ def submit_provider_job(job_id: int) -> None:
         current.error_code = ""
         current.error_message = ""
         current.provider_job_id = submission.provider_job_id
-        current.quoted_credits = submission.quoted_credits
+        current.provider_reported_credits = submission.quoted_credits
         current.next_poll_at = timezone.now()
         current.save(update_fields=[
-            "status", "error_code", "error_message", "provider_job_id", "quoted_credits", "next_poll_at", "updated_at",
+            "status", "error_code", "error_message", "provider_job_id", "provider_reported_credits", "next_poll_at", "updated_at",
         ])
     try:
         poll_provider_job.delay(job.id)
@@ -189,6 +216,11 @@ def poll_provider_job(job_id: int) -> None:
 @shared_task
 def recover_provider_polls() -> int:
     recover_stale_submissions()
+    for job_id in GenerationJob.objects.filter(
+        status="pending_provider", provider_submission_started_at__isnull=True,
+        dispatch_at__lte=timezone.now(),
+    ).values_list("id", flat=True)[:100]:
+        submit_provider_job.run(job_id)
     due_ids = list(
         GenerationJob.objects.filter(status__in=ACTIVE_STATES)
         .exclude(provider_job_id="")
@@ -199,3 +231,11 @@ def recover_provider_polls() -> int:
     for job_id in due_ids:
         poll_provider_job.run(job_id)
     return len(due_ids)
+
+
+def dispatch_submission(job_id):
+    try:
+        submit_provider_job.delay(job_id)
+    except Exception:
+        # The committed dispatch_at outbox remains recoverable; never create another job.
+        logger.warning("Submission dispatch delayed for job %s; durable schedule retained.", job_id)

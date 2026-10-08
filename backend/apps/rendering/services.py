@@ -98,8 +98,8 @@ def snapshot_export(project: Project, data: dict) -> tuple[str, dict, dict]:
                 raise ExportNotFound
             if asset_id is not None:
                 raise serializers.ValidationError({"scenes": ["Use asset_id or generation_job_id, not both."]})
-            asset_id = job.result.get("asset_id") if isinstance(job.result, dict) else None
-            if job.status != GenerationJob.Status.COMPLETED or not valid_id(asset_id):
+            asset_id = job.generated_asset_id
+            if job.status != GenerationJob.Status.COMPLETED or job.asset_status != "ready" or not valid_id(asset_id):
                 manifest["source_error"] = {
                     "code": "export_source_unavailable",
                     "message": "Generation must be completed and copied into a durable workspace Asset before export.",

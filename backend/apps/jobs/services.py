@@ -62,6 +62,8 @@ def submit_generation_job(
         raise UnsupportedCapability(
             "Presenter generation is unavailable until secure workspace asset upload/mapping to Magic Hour is configured."
         )
+    if capability == "image.generate":
+        raise UnsupportedCapability("Image generation requires an accepted, current quote.")
 
     job = GenerationJob.objects.create(
         workspace_id=workspace_id,
@@ -168,11 +170,16 @@ def apply_provider_update(
         job.error_message = error_message
         if status == GenerationJob.Status.COMPLETED and result is not None:
             job.result = result
+        if status == GenerationJob.Status.COMPLETED and job.capability == "image.generate":
+            job.asset_status = "pending"
+            from django.utils import timezone
+            job.asset_next_attempt_at = timezone.now()
         if status in {
             GenerationJob.Status.COMPLETED, GenerationJob.Status.FAILED, GenerationJob.Status.CANCELED,
         }:
             job.next_poll_at = None
-        job.save(update_fields=["status", "error_code", "error_message", "result", "next_poll_at", "updated_at"])
+        job.save(update_fields=["status", "error_code", "error_message", "result", "next_poll_at",
+                                "asset_status", "asset_next_attempt_at", "updated_at"])
 
     if amount_credits is not None:
         if isinstance(amount_credits, bool) or not isinstance(amount_credits, int) or amount_credits < 0:
@@ -182,4 +189,6 @@ def apply_provider_update(
             external_event_id=f"usage:{job.id}",
             amount_credits=amount_credits,
         )
+        job.provider_reported_credits = amount_credits
+        job.save(update_fields=["provider_reported_credits"])
     return job
