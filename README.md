@@ -21,7 +21,8 @@ focuses on that missing continuity rather than another isolated generator.
 
 Status describes the local development branch, not a released or deployed app.
 Backend export, frontend auth, studio workflow and gated image-integration
-reviews are complete. Live browser and media-runtime checks are the next milestone.
+reviews are complete. A local browser end-to-end run with a real FFmpeg export now passes
+(SQLite/eager-Celery harness); PostgreSQL/Redis/worker and Railway checks remain.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
@@ -32,18 +33,19 @@ reviews are complete. Live browser and media-runtime checks are the next milesto
 | React authentication and dashboard | Reviewed | Session bootstrap, expiry recovery, project creation and studio navigation |
 | Creator studio | Reviewed | Uploaded-asset picker, image/video scenes, captions, job status refresh and export screens |
 | Caption tracks | Reviewed APIs and UI | Validated segments, track creation/editing and export selection |
-| FFmpeg export assembly | Reviewed implementation; runtime unverified | Private MP4 and subtitle downloads; mocked subprocess tests, no real render yet |
+| FFmpeg export assembly | Locally verified (uploaded image) | Private MP4 and subtitle downloads; real FFmpeg/FFprobe checked in the E2E run (H.264 1080x1920 + AAC); unit tests still mock subprocesses |
 | Image generation from the studio | Implemented; activation gated | Versioned credit estimates, explicit confirmation, duplicate-submit protection; requires verified operator configuration |
 | Presenter generation | Intentionally disabled | Needs secure workspace image/audio transfer and audio ingestion |
 | Generated media to editable scenes | Implemented; activation gated | Bounded private ingestion and recovery; download origins and durable storage need operator verification |
-| Browser end-to-end verification | Next milestone | Real cookies, CSRF, proxy, studio and export workflow |
+| Browser end-to-end verification | Passing locally | Unmocked register, login, project, upload, scene, captions and export via Playwright; isolated SQLite and eager Celery, not production infrastructure |
 | Railway production deployment | Planned | Persistent private storage and worker infrastructure need deployment verification |
 
-**Latest recorded checks:** the default backend suite completed with 151 tests
-and 3 PostgreSQL-only skips; the latest scoped PostgreSQL jobs/provider run passed
-90 tests, and 73 frontend tests passed. Frontend typecheck and build were clean.
+**Latest recorded checks:** the default backend suite completed with 157 tests
+(6 skipped); the latest scoped PostgreSQL jobs/provider run passed
+90 tests, and 73 frontend tests passed. Frontend typecheck and build were clean,
+migration drift check was clean and the local browser E2E run passed.
 The full PostgreSQL suite still has documented baseline auth/rendering test
-failures. Provider calls and FFmpeg subprocesses were mocked where applicable.
+failures. Provider calls were mocked or disabled; unit-test FFmpeg subprocesses are mocked,\nwhile the E2E export used real FFmpeg.
 These are recorded local results, not a live CI badge: this repository does not
 yet have a CI workflow.
 
@@ -53,7 +55,7 @@ These are dependency-based phases, not promised delivery dates.
 
 | Phase | Milestone | Acceptance boundary |
 | --- | --- | --- |
-| P0 - creator foundation | Task 8 browser and runtime checks | Sign up, create a project, upload media, assemble scenes, edit captions and verify export with real FFmpeg |
+| P0 - creator foundation | Task 8 browser and runtime checks (local run done; production infrastructure unverified) | Sign up, create a project, upload media, assemble scenes, edit captions and verify export with real FFmpeg |
 | P1 - generation activation and deployment | Verify configured credit quotes, authorized provider integration and durable generated assets; add audio transfer and Railway deployment | Paid actions show a trustworthy estimate before submission; outputs persist privately; API, worker, scheduler and storage operate together |
 | P2 - creator quality and workflow depth | Script-to-video orchestration, realistic scene/body-motion controls, localization and team/agency tools | Evaluate with authorized quality, latency and cost benchmarks before making performance claims |
 
@@ -152,7 +154,8 @@ Set-Location "C:\Software Projects\Chameleon\backend"
 Missing rendering binaries produce explicit failures. Generation credentials
 are optional for exploring the uploaded-media workflow; enabling provider-backed
 API requests can incur charges. See [backend setup and recovery](./backend/README.md)
-and [environment examples](./infra/) for configuration details.
+and [environment examples](./infra/) for configuration details. The planned Railway
+topology and pre-launch checks are in the [Railway runbook](./infra/railway.md). The planned Railway\ntopology and pre-launch checks are in the [Railway runbook](./infra/railway.md).
 For inactive-by-default generation gates, tariff verification and private
 ingestion operations, see [image integration runbook](./docs/generation-image-integration.md).
 
@@ -169,8 +172,31 @@ npm --prefix ".\frontend" run build
 ```
 
 Backend tests use isolated SQLite/cache settings and controlled provider/broker
-doubles. Live PostgreSQL concurrency, provider quality, real FFmpeg rendering
-and production operation require their own integration checks.
+doubles. Live PostgreSQL concurrency, provider quality and production operation
+require their own integration checks.
+
+### Browser end-to-end test
+
+The Playwright suite in `e2e/` starts its own Django API (port 18000) and Vite
+dev server (port 15173) with a scratch SQLite database and media directory under
+`e2e/.runtime/`, eager Celery and an in-process cache (`chameleon.settings_e2e`,
+refuses to load without `CHAMELEON_E2E=1`). It sets an empty provider key and
+makes no paid generation calls. FFmpeg/FFprobe come from project-local npm
+packages (`ffmpeg-static`, `ffprobe-static`), so nothing global is installed.
+The scratch SQLite database, in-process cache and eager Celery do **not** prove
+PostgreSQL, Redis or a separate worker; the exported file is an uploaded-image
+clip, not the future cinematic storytelling output.
+
+```powershell
+npm --prefix ".\e2e" ci
+# Uses the Python 3.11 interpreter at C:\Users\Ray\AppData\Local\Programs\Python\Python311\python.exe;
+# override with $env:E2E_PYTHON. Use an installed browser (or run
+# `npx playwright install chromium` in e2e/ once):
+$env:PLAYWRIGHT_CHANNEL = "msedge"
+npm --prefix ".\e2e" run test
+```
+
+The exported MP4 and its `ffprobe` output are written to `e2e/.runtime/artifacts/`.
 
 ## Engineering principles
 
@@ -192,6 +218,7 @@ and production operation require their own integration checks.
 ```text
 backend/   Django API, Celery configuration, domain apps and tests
 frontend/  React + Vite + TypeScript studio
+e2e/       Playwright browser end-to-end tests and local harness
 infra/     Backend and frontend environment examples
 docs/      Product design and implementation plan
 replica/   Competitive and compliance research from public sources
