@@ -255,6 +255,78 @@ describe("dashboard", () => {
   });
 });
 
+describe("expired session recovery", () => {
+  const notAuthenticated = () => json({ detail: "Authentication credentials were not provided." }, 403);
+
+  test("redirects to sign in when the workspace request reveals an expired session", async () => {
+    const { calls } = installFetch({
+      "GET /api/auth/session/": [json({ authenticated: true, user: owner, workspaces: [creatorStudio] }), json(anonymous)],
+      "GET /api/workspaces/": notAuthenticated,
+    });
+    renderApp("/app");
+
+    expect(await screen.findByRole("button", { name: /sign in/i })).toBeTruthy();
+    expect(calls.filter((c) => c.url === "/api/auth/session/")).toHaveLength(2);
+  });
+
+  test("redirects to sign in when the project request reveals an expired session", async () => {
+    installFetch({
+      "GET /api/auth/session/": [json({ authenticated: true, user: owner, workspaces: [creatorStudio] }), json(anonymous)],
+      "GET /api/workspaces/": json([creatorStudio]),
+      "GET /api/projects/?workspace_id=11": notAuthenticated,
+    });
+    renderApp("/app");
+
+    expect(await screen.findByRole("button", { name: /sign in/i })).toBeTruthy();
+  });
+
+  test("redirects on retry after the session expires", async () => {
+    installFetch({
+      "GET /api/auth/session/": [
+        json({ authenticated: true, user: owner, workspaces: [creatorStudio] }),
+        json(anonymous),
+      ],
+      "GET /api/workspaces/": json([creatorStudio]),
+      "GET /api/projects/?workspace_id=11": [
+        json({ code: "server_error", message: "Projects are temporarily unavailable.", errors: {} }, 503),
+        notAuthenticated,
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("/app");
+
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    expect(await screen.findByRole("button", { name: /sign in/i })).toBeTruthy();
+  });
+
+  test("keeps a still-valid session on the dashboard and shows the permission error without looping", async () => {
+    const forbidden = () =>
+      json({ code: "forbidden", message: "You do not have access to this workspace.", errors: {} }, 403);
+    const { calls } = installFetch({
+      "GET /api/auth/session/": json({ authenticated: true, user: owner, workspaces: [creatorStudio] }),
+      "GET /api/workspaces/": json([creatorStudio]),
+      "GET /api/projects/?workspace_id=11": forbidden,
+    });
+    renderApp("/app");
+
+    expect((await screen.findByRole("alert")).textContent).toContain("You do not have access to this workspace.");
+    expect(screen.getByRole("heading", { name: "Creator Studio", level: 1 })).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.filter((c) => c.url === "/api/auth/session/")).toHaveLength(2);
+    expect(calls.filter((c) => c.url === "/api/projects/?workspace_id=11")).toHaveLength(1);
+  });
+
+  test("shows the original error when the session re-check itself fails", async () => {
+    installFetch({
+      "GET /api/auth/session/": [json({ authenticated: true, user: owner, workspaces: [creatorStudio] }), new TypeError("Failed to fetch")],
+      "GET /api/workspaces/": notAuthenticated,
+    });
+    renderApp("/app");
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Authentication credentials were not provided.");
+  });
+});
 describe("home", () => {
   test("keeps the root home route with entry links", () => {
     renderApp("/");

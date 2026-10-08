@@ -27,6 +27,7 @@ export type SessionState = SessionData & {
   setWorkspaces: (workspaces: WorkspaceMembership[]) => void;
   ensureSession: () => Promise<void>;
   reloadSession: () => Promise<void>;
+  verifySession: () => Promise<boolean>;
   register: (input: RegisterInput) => Promise<RegisterResponse>;
   login: (input: LoginInput) => Promise<LoginResponse>;
 };
@@ -112,6 +113,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     });
     return request;
+  },
+
+  // Re-checks the session without unmounting the dashboard (status stays "authenticated" unless
+  // the server says the session is gone), so a genuine permission error can't cause a reload loop.
+  verifySession: async () => {
+    const session = await apiRequest<SessionPayload>("/auth/session/");
+    if (!session.authenticated) {
+      sessionRequest = null;
+      clearCsrfToken();
+      set({ ...initialData, status: "anonymous" });
+      return false;
+    }
+    set(authenticatedData(session.user, session.workspaces, get().activeWorkspaceId));
+    return true;
   },
 
   register: async (input) => {

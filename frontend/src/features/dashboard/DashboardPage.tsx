@@ -6,6 +6,7 @@ import { apiRequest } from "../../lib/api/client";
 import type { WorkspaceMembership } from "../../lib/api/types";
 import { useSessionStore } from "../../lib/auth/session-store";
 import { ProjectList } from "./ProjectList";
+import { useLoadErrorHandler } from "./use-load-error-handler";
 
 export function DashboardPage() {
   const status = useSessionStore((state) => state.status);
@@ -40,6 +41,8 @@ function WorkspaceDashboard() {
   const [state, setState] = useState<WorkspacesState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  const showError = useCallback((error: unknown) => setState({ status: "error", error }), []);
+  const handleLoadError = useLoadErrorHandler(showError);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -52,9 +55,7 @@ function WorkspaceDashboard() {
         }
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setState({ status: "error", error });
-        }
+        void handleLoadError(error, controller.signal);
       },
     );
     return () => controller.abort();

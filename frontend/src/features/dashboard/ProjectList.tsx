@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
 import type { Project } from "../../lib/api/types";
+import { useLoadErrorHandler } from "./use-load-error-handler";
 
 type ProjectListProps = {
   workspaceId: number;
@@ -17,6 +18,8 @@ export function ProjectList({ workspaceId }: ProjectListProps) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  const showError = useCallback((error: unknown) => setState({ status: "error", error }), []);
+  const handleLoadError = useLoadErrorHandler(showError);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -30,9 +33,7 @@ export function ProjectList({ workspaceId }: ProjectListProps) {
         }
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setState({ status: "error", error });
-        }
+        void handleLoadError(error, controller.signal);
       },
     );
     return () => controller.abort();
