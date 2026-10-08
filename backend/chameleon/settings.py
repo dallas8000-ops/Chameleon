@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.accounts.apps.AccountsConfig",
     "apps.studio.apps.StudioConfig",
     "apps.jobs.apps.JobsConfig",
+    "apps.rendering.apps.RenderingConfig",
     "api",
 ]
 
@@ -100,6 +101,10 @@ CELERY_BROKER_URL = os.environ.get(
 MAGIC_HOUR_API_KEY = os.environ.get("MAGIC_HOUR_API_KEY", "")
 MAGIC_HOUR_WEBHOOK_SECRET = os.environ.get("MAGIC_HOUR_WEBHOOK_SECRET", "")
 CELERY_BEAT_SCHEDULE = {
+    "recover-exports": {
+        "task": "apps.rendering.tasks.recover_exports",
+        "schedule": 30.0,
+    },
     "recover-provider-polls": {
         "task": "apps.jobs.tasks.recover_provider_polls",
         "schedule": 30.0,
@@ -145,6 +150,8 @@ STATIC_URL = "/static/"
 # Private upload storage (local filesystem); no MEDIA_URL is served.
 MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "private_media"))
 STUDIO_MAX_UPLOAD_BYTES = int(os.environ.get("STUDIO_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
+FFMPEG_BINARY = os.environ.get("FFMPEG_BINARY", "ffmpeg")
+FFPROBE_BINARY = os.environ.get("FFPROBE_BINARY", "ffprobe")
 USE_TZ = True
 TIME_ZONE = "UTC"
 

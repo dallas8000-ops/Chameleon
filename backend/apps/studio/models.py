@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from apps.accounts.models import Workspace
 
@@ -85,3 +86,32 @@ class CaptionTrack(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["project", "language"], name="unique_caption_language_per_project"),
         ]
+
+
+class Export(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        PROCESSING = "processing", "Processing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="exports")
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.QUEUED)
+    format = models.CharField(max_length=16, choices=Project.Format.choices)
+    # Private controlled-storage keys, never serialized to clients.
+    output_path = models.CharField(max_length=255, blank=True)
+    subtitle_path = models.CharField(max_length=255, blank=True)
+    settings = models.JSONField(default=dict)
+    manifest = models.JSONField(default=dict)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    attempt_token = models.CharField(max_length=32, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+    cleanup_keys = models.JSONField(default=list, blank=True)
+    error_code = models.CharField(max_length=80, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
