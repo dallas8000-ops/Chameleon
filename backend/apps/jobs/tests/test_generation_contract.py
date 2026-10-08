@@ -78,6 +78,32 @@ class GenerationContractTests(StudioFixture):
             self.assertEqual(self.submit(quote).status_code, 404)
         self.assertFalse(GenerationJob.objects.exists())
 
+    def test_only_locked_unconsumed_quote_rejection_confirms_not_accepted(self):
+        from apps.jobs.models import GenerationQuote
+        with self.configured():
+            quote = self.quote().json()["quote_id"]
+            GenerationQuote.objects.filter(pk=quote).update(expires_at=timezone.now() - timedelta(seconds=1))
+            rejected = self.submit(quote)
+            self.assertIs(rejected.json().get("submission_not_accepted"), True)
+            self.assertFalse(GenerationJob.objects.exists())
+            foreign = self.submit("00000000-0000-0000-0000-000000000001", key="other")
+            self.assertNotIn("submission_not_accepted", foreign.json())
+            consumed = self.quote().json()["quote_id"]
+            with self.captureOnCommitCallbacks(execute=False):
+                accepted = self.submit(consumed, key="accepted")
+            GenerationQuote.objects.filter(pk=consumed).update(expires_at=timezone.now() - timedelta(seconds=1))
+            self.assertEqual(self.submit(consumed, key="accepted").json()["id"], accepted.json()["id"])
+            conflict = self.submit(consumed, key="accepted", prompt="Other")
+            self.assertNotIn("submission_not_accepted", conflict.json())
+            consumed_mismatch = self.submit(consumed, key="new-key", prompt="Other")
+            self.assertEqual(consumed_mismatch.json()["code"], "quote_changed")
+            self.assertNotIn("submission_not_accepted", consumed_mismatch.json())
+            fresh = self.quote().json()["quote_id"]
+            from django.conf import settings
+            with override_settings(GENERATION_IMAGE_TARIFF={**settings.GENERATION_IMAGE_TARIFF, "version": "new-v2"}):
+                changed = self.submit(fresh, key="fresh")
+                self.assertIs(changed.json().get("submission_not_accepted"), True)
+
     def test_roles_and_strict_inputs(self):
         with self.configured():
             self.assertEqual(self.post("/api/jobs/image-generation/quote/", {**self.input, "url": "https://x"}).status_code, 400)

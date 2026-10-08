@@ -9,6 +9,7 @@ export class ApiError extends Error implements ApiErrorBody {
   readonly status: number;
   readonly code: string;
   readonly errors: ApiFieldErrors;
+  readonly submission_not_accepted: boolean;
 
   constructor(status: number, body: ApiErrorBody) {
     super(body.message);
@@ -16,6 +17,7 @@ export class ApiError extends Error implements ApiErrorBody {
     this.status = status;
     this.code = body.code;
     this.errors = body.errors;
+    this.submission_not_accepted = body.submission_not_accepted === true;
   }
 }
 
@@ -95,6 +97,7 @@ async function toApiError(response: Response): Promise<ApiError> {
         code: typeof body.code === "string" ? body.code : fallback.code,
         message: body.message,
         errors: isFieldErrors(body.errors) ? body.errors : {},
+        submission_not_accepted: body.submission_not_accepted === true,
       });
     }
     if (typeof body.detail === "string") {

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { ApiError, apiRequest } from "../../lib/api/client";
 import type { GenerationCapabilities, GenerationJob, GenerationQuote } from "../../lib/api/types";
@@ -12,7 +12,7 @@ type Props = {
   pollIntervalMs?: number;
   onAssetReady?: () => void;
 };
-type Attempt = { key: string; payload: Record<string, unknown> };
+type Attempt = { key: string; payload: Record<string, unknown>; job?: GenerationJob };
 
 export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollIntervalMs, onAssetReady }: Props) {
   const userId = useSessionStore(state => state.user?.id);
@@ -28,29 +28,38 @@ export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollI
   const [revision, setRevision] = useState(0);
   const attempt = useRef<Attempt | null>(null);
   const inFlight = useRef(false);
+  const context = useRef(0);
   const storageKey = `generation-attempt:${userId ?? "session"}:${workspaceId}:${projectId ?? "none"}`;
 
   useEffect(() => {
+    context.current += 1;
     attempt.current = null;
     setJob(null);
     setQuote(null);
     setUncertain(false);
+    setBusy(false);
+    setError(null);
     try {
       const saved = sessionStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as Attempt;
-        if (typeof parsed.key === "string" && parsed.payload?.quote_id) {
+        if (typeof parsed?.key === "string" && parsed.payload?.quote_id) {
           attempt.current = parsed;
-          setUncertain(true);
-        }
+          if (parsed.job?.id && parsed.job.status) setJob(parsed.job);
+          else setUncertain(true);
+        } else throw new Error("Invalid saved attempt.");
       }
-    } catch { /* A storage failure cannot authorize a new paid request. */ }
+    } catch {
+      setUncertain(true);
+      setError(new Error("Unable to restore submission identity. Do not generate again; contact an operator."));
+    }
+    return () => { context.current += 1; };
   }, [storageKey, sessionStatus]);
 
   useEffect(() => {
     const controller = new AbortController();
     setQuote(null);
-    if (!canWrite || uncertain || !prompt.trim() || sessionStatus === "anonymous") {
+    if (!canWrite || uncertain || job || !prompt.trim() || sessionStatus === "anonymous") {
       setReason(!canWrite ? "Read-only workspace." : "Review or resolve the existing attempt first.");
       return () => controller.abort();
     }
@@ -84,7 +93,7 @@ export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollI
       })();
     }, 150);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [workspaceId, projectId, prompt, ratio, canWrite, uncertain, revision, sessionStatus, userId]);
+  }, [workspaceId, projectId, prompt, ratio, canWrite, uncertain, revision, sessionStatus, userId, job]);
 
   useEffect(() => {
     if (!quote) return;
@@ -94,6 +103,16 @@ export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollI
     }, Math.max(0, Date.parse(quote.expires_at) - Date.now()));
     return () => clearTimeout(timer);
   }, [quote]);
+
+  const assetReady = useCallback((readyJob: GenerationJob) => {
+    const current = attempt.current;
+    if (!current || current.job?.id !== readyJob.id) return;
+    current.job = readyJob;
+    try { sessionStorage.setItem(storageKey, JSON.stringify(current)); }
+    catch { setError(new Error("Unable to preserve updated job state. The existing job is still saved on the server.")); }
+    setJob(readyJob);
+    onAssetReady?.();
+  }, [storageKey, onAssetReady]);
 
   async function submit(resolve = false) {
     if (inFlight.current || !canWrite) return;
@@ -114,6 +133,7 @@ export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollI
     }
     const current = attempt.current;
     if (!current) return;
+    const requestContext = context.current;
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -121,18 +141,26 @@ export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollI
       const accepted = await apiRequest<GenerationJob>("/jobs/image-generation/", {
         method: "POST", headers: { "Idempotency-Key": current.key }, body: JSON.stringify(current.payload),
       });
+      if (!accepted || !Number.isInteger(accepted.id) || accepted.id < 1 || ![
+        "pending_provider", "queued", "processing", "completed", "failed", "canceled", "blocked_provider_not_configured",
+      ].includes(accepted.status)) {
+        throw new ApiError(0, { code: "invalid_response", message: "The server did not confirm an accepted job.", errors: {} });
+      }
+      current.job = accepted;
+      sessionStorage.setItem(storageKey, JSON.stringify(current));
+      if (context.current !== requestContext) return;
       setJob(accepted);
       setUncertain(false);
-      attempt.current = null;
-      sessionStorage.removeItem(storageKey);
       setQuote(null);
     } catch (caught) {
+      const rejected = caught instanceof ApiError && caught.status === 409 && caught.submission_not_accepted
+        && ["quote_changed", "quote_expired"].includes(caught.code);
+      if (rejected) sessionStorage.removeItem(storageKey);
+      if (context.current !== requestContext) return;
       setError(caught);
-      if (caught instanceof ApiError && caught.status > 0 && caught.status < 500
-          && ![401, 403].includes(caught.status) && caught.code !== "idempotency_conflict") {
-        // A rejected request has no accepted paid attempt. Requoting never auto-submits.
+      if (rejected) {
+        // Only the locked, unconsumed-quote rejection can release a paid attempt.
         attempt.current = null;
-        sessionStorage.removeItem(storageKey);
         setUncertain(false);
         setQuote(null);
         if (["quote_changed", "quote_expired"].includes(caught.code)) setRevision(value => value + 1);
@@ -142,7 +170,7 @@ export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollI
       }
     } finally {
       inFlight.current = false;
-      setBusy(false);
+      if (context.current === requestContext) setBusy(false);
     }
   }
 
@@ -166,15 +194,23 @@ export function GenerationPanel({ workspaceId, projectId, canWrite = true, pollI
       <button disabled={busy || !canWrite || !quote || uncertain || !prompt.trim()} onClick={() => void submit()}>
         Generate image
       </button>
-      <button disabled={busy || !canWrite || uncertain} onClick={() => setRevision(value => value + 1)}>Refresh estimate</button>
+      <button disabled={busy || !canWrite || uncertain || (!!job && job.asset_status !== "ready")} onClick={() => {
+        if (job) {
+          try { sessionStorage.removeItem(storageKey); }
+          catch { setError(new Error("Unable to clear the saved successful attempt.")); return; }
+          attempt.current = null;
+          setJob(null);
+        }
+        setRevision(value => value + 1);
+      }}>Refresh estimate</button>
       {uncertain && <div role="alert">
         The submission outcome is unknown. Do not generate again. Resolve the same attempt or contact an operator.
-        <button disabled={busy || !canWrite} onClick={() => void submit(true)}>Resolve existing attempt</button>
+        <button disabled={busy || !canWrite || !attempt.current} onClick={() => void submit(true)}>Resolve existing attempt</button>
       </div>}
       <p>Presenter generation is unavailable until secure workspace audio and provider mapping are configured.</p>
       <p>Generated images become scene assets only after private saving is ready. This is not a cinematic motion or continuity system.</p>
       {job && <JobStatusCard key={job.id} jobId={job.id} status={job.status} message={job.error_message}
-        initialJob={job} pollIntervalMs={pollIntervalMs} onAssetReady={onAssetReady} />}
+        initialJob={job} pollIntervalMs={pollIntervalMs} onAssetReady={assetReady} />}
       {error ? <ErrorAlert error={error} /> : null}
     </section>
   );

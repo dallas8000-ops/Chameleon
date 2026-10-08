@@ -15,8 +15,9 @@ PARAMETERS = {"model": "z-image-turbo", "resolution": "640px", "image_count": 1,
 
 
 class ContractError(Exception):
-    def __init__(self, code, message, status=409):
+    def __init__(self, code, message, status=409, *, submission_not_accepted=False):
         self.code, self.message, self.status = code, message, status
+        self.submission_not_accepted = submission_not_accepted
 
 
 def validate_scope(user, payload, *, write=True):
@@ -125,10 +126,12 @@ def accept_quote(user, payload, quote_id, key):
     if quote.consumed_at:
         raise ContractError("tracking_unavailable", "This quote was already consumed; operator review is required.")
     if quote.expires_at <= timezone.now():
-        raise ContractError("quote_expired", "Quote expired. Request and review a new quote.")
+        raise ContractError("quote_expired", "Quote expired. Request and review a new quote.",
+                            submission_not_accepted=True)
     current = active_tariff()
     if quote.snapshot != current:
-        raise ContractError("quote_changed", "Pricing changed. Request and review a new quote.")
+        raise ContractError("quote_changed", "Pricing changed. Request and review a new quote.",
+                            submission_not_accepted=True)
     job = GenerationJob.objects.create(
         workspace_id=payload["workspace_id"], project_id=payload.get("project_id"),
         scene_id=payload.get("scene_id"), requested_by=user, idempotency_key=key, payload=payload,

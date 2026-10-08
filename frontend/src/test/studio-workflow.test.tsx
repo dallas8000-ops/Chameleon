@@ -57,6 +57,7 @@ function renderAt(path: string) {
 beforeEach(() => {
   clearCsrfToken();
   resetSessionStore();
+  sessionStorage.clear();
 });
 afterEach(() => {
   vi.restoreAllMocks();

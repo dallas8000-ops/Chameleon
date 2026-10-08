@@ -302,7 +302,10 @@ class ImageGenerationView(GenerationSubmissionView):
         try:
             job = accept_quote(request.user, payload, quote_id, key)
         except ContractError as error:
-            return contract_response(error.code, error.message, error.status)
+            response = contract_response(error.code, error.message, error.status)
+            if error.submission_not_accepted:
+                response.data["submission_not_accepted"] = True
+            return response
         response = Response(GenerationJobSerializer(job).data, status=202)
         response["Cache-Control"] = "private, no-store"
         return response

@@ -109,6 +109,22 @@ require reviewing a fresh quote and another click; no automatic paid retry.
 An unresolved attempt persists its exact request and key in browser session
 storage. “Resolve existing attempt” reuses that identity instead of regenerating.
 Storage failure prevents the UI from starting an untracked paid attempt.
+Generic HTTP errors (including 404/429), auth failures, stale error codes without
+proof, unreadable/malformed successes, and transient failures do not release that
+identity. Only a quote-expiry/pricing-change response with
+`submission_not_accepted=true` may release it. The server issues this marker only
+after checking existing key/job and consumed state under membership/quote locks;
+foreign, conflicting and deleted-consumed tracking never receive it.
+
+Confirmed accepted jobs and their exact request/key remain in session storage
+across refresh and same-user authentication changes; late responses are saved in
+their original namespace, not displayed in another workspace/user context.
+Unreadable stored identity fails closed for operator review. After an image is
+confirmed privately ready, **Refresh estimate** explicitly starts a new quoting
+flow; it does not submit another image. Pending, failed or unknown attempts cannot
+use that action to regenerate. This persistence is browser-tab/session scoped,
+not an account-wide cross-device recovery feature. Clearing site/session storage
+can remove local tracking; the server's consumed quote/job protections remain.
 
 Database membership/quote locks serialize acceptance and key reuse, and a consumed
 quote resolves to its original job even after expiry/config changes. A consumed

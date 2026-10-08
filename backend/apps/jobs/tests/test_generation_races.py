@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
-from django.db import close_old_connections, connection
+from django.db import IntegrityError, close_old_connections, connection, transaction
 from django.test import TransactionTestCase, override_settings
 
 from apps.accounts.models import Workspace, WorkspaceMembership
@@ -11,6 +11,8 @@ from apps.jobs.quoting import accept_quote, create_quote
 from apps.jobs.tasks import submit_provider_job
 from apps.jobs.tests.test_generation_contract import tariff
 from apps.providers.base import ProviderSubmission
+import threading
+from django.test import Client
 
 
 class GenerationRaceTests(TransactionTestCase):
@@ -26,7 +28,8 @@ class GenerationRaceTests(TransactionTestCase):
         self.user = get_user_model().objects.create(email="race@example.com")
         self.workspace = Workspace.objects.create(name="Race")
         WorkspaceMembership.objects.create(user=self.user, workspace=self.workspace, role="owner")
-        self.payload = {"workspace_id": self.workspace.id, "prompt": "Daylight", "aspect_ratio": "1:1"}
+        self.payload = {"workspace_id": self.workspace.id, "project_id": None, "scene_id": None,
+                        "prompt": "Daylight", "aspect_ratio": "1:1", "name": ""}
         self.quote = create_quote(self.user, self.payload)
 
     def threaded(self, operation):
@@ -69,6 +72,77 @@ class GenerationRaceTests(TransactionTestCase):
             futures = [pool.submit(accept, item.id) for item in (self.quote, other)]
             results = [future.result(timeout=20) for future in futures]
         self.assertEqual(results.count("idempotency_conflict"), 1)
+        self.assertEqual(GenerationJob.objects.count(), 1)
+
+    def test_concurrent_http_submits_return_contract_results_not_database_conflicts(self):
+        other = create_quote(self.user, self.payload)
+        for quote_ids, expected_statuses in (
+            ([self.quote.id, self.quote.id], [202, 202]),
+            ([self.quote.id, other.id], [202, 409]),
+        ):
+            barrier = threading.Barrier(2)
+            clients = [Client(), Client()]
+            for client in clients:
+                client.force_login(self.user)
+            def post(index):
+                close_old_connections()
+                try:
+                    barrier.wait(timeout=10)
+                    response = clients[index].post("/api/jobs/image-generation/", {
+                        **self.payload, "quote_id": str(quote_ids[index]),
+                    }, content_type="application/json", HTTP_IDEMPOTENCY_KEY="same-http-key")
+                    return response.status_code, response.json()
+                finally:
+                    close_old_connections()
+            with patch("apps.jobs.tasks.dispatch_submission"), ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(post, range(2)))
+            self.assertEqual(sorted(status for status, body in results), expected_statuses, results)
+            accepted = [body["id"] for status, body in results if status == 202]
+            self.assertEqual(len(set(accepted)), 1)
+            self.assertEqual(GenerationJob.objects.count(), 1)
+            for status, body in results:
+                if status == 409:
+                    self.assertEqual(body["code"], "idempotency_conflict")
+
+    def test_concurrent_different_keys_consume_one_http_quote_once(self):
+        client = Client()
+        client.force_login(self.user)
+        response = client.post("/api/jobs/image-generation/quote/", self.payload, content_type="application/json")
+        self.assertEqual(response.status_code, 200, response.content)
+        quote_id = response.json()["quote_id"]
+        clients = [Client(), Client()]
+        for client in clients:
+            client.force_login(self.user)
+        barrier = threading.Barrier(2)
+        def post(index):
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                response = clients[index].post("/api/jobs/image-generation/", {
+                    **self.payload, "quote_id": quote_id,
+                }, content_type="application/json", HTTP_IDEMPOTENCY_KEY=f"different-key-{index}")
+                return response.status_code, response.json()
+            finally:
+                close_old_connections()
+        with patch("apps.jobs.tasks.dispatch_submission"), ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(post, range(2)))
+        self.assertEqual([status for status, body in results], [202, 202], results)
+        self.assertEqual(results[0][1]["id"], results[1][1]["id"])
+        self.assertEqual(GenerationJob.objects.count(), 1)
+
+    def test_migrated_database_enforces_submit_attempt_uniqueness(self):
+        with patch("apps.jobs.tasks.dispatch_submission"):
+            accept_quote(self.user, self.payload, self.quote.id, "database-unique")
+        with connection.cursor() as cursor:
+            constraints = connection.introspection.get_constraints(cursor, GenerationJob._meta.db_table)
+        constraint = constraints["unique_generation_submit_attempt"]
+        self.assertTrue(constraint["unique"])
+        self.assertEqual(constraint["columns"], ["workspace_id", "requested_by_id", "idempotency_key"])
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            GenerationJob.objects.create(
+                workspace=self.workspace, requested_by=self.user, idempotency_key="database-unique",
+                capability="image.generate", payload=self.payload,
+            )
         self.assertEqual(GenerationJob.objects.count(), 1)
 
     def test_parallel_ingestion_uses_one_lease_and_creates_one_owned_asset(self):

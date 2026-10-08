@@ -51,6 +51,7 @@ export type ApiErrorBody = {
   code: string;
   message: string;
   errors: ApiFieldErrors;
+  submission_not_accepted?: boolean;
 };
 
 export type CsrfTokenResponse = {

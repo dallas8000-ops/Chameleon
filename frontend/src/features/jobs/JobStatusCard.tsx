@@ -11,7 +11,7 @@ type JobStatusCardProps = {
   message?: string;
   jobId?: number;
   pollIntervalMs?: number;
-  onAssetReady?: () => void;
+  onAssetReady?: (job: GenerationJob) => void;
   initialJob?: GenerationJob;
 };
 
@@ -51,7 +51,7 @@ export function JobStatusCard({ status, message, jobId, pollIntervalMs = 3000, o
     view.status !== "completed" || ["ready", "failed"].includes(view.job?.asset_status ?? "")
   );
   const readyId = view.job?.asset_status === "ready" ? view.job.result?.asset_id : undefined;
-  useEffect(() => { if (typeof readyId === "number") onAssetReady?.(); }, [readyId]);
+  useEffect(() => { if (typeof readyId === "number" && view.job) onAssetReady?.(view.job); }, [readyId]);
   useEffect(() => {
     if (jobId === undefined || terminal || error) {
       return;

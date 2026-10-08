@@ -17,6 +17,27 @@ from apps.studio.tests.fixtures import StudioFixture
 
 class DownloadBoundaryTests(SimpleTestCase):
     @override_settings(GENERATION_DOWNLOAD_ORIGINS=["https://media.example"])
+    def test_signed_output_path_and_query_are_preserved_on_authorized_origin(self):
+        from apps.jobs.downloads import authorized_origins, download_image
+        payload = b"\x89PNG\r\n\x1a\nfixture"
+        headers = {"Content-Type": "image/png", "Content-Length": str(len(payload))}
+        response = Mock(status=200)
+        response.getheader.side_effect = lambda key, default=None: headers.get(key, default)
+        response.read.side_effect = [payload, b""]
+        connection = Mock()
+        connection.getresponse.return_value = response
+        path = "/outputs/project-1/image%20one.png?Expires=1999999999&Signature=abc%2Fdef%3D&Key-Pair-Id=fixture"
+        target = io.BytesIO()
+        with patch("apps.jobs.downloads.resolve", return_value=["8.8.8.8"]), \
+             patch("apps.jobs.downloads.PinnedHTTPSConnection", return_value=connection):
+            self.assertEqual(download_image("https://media.example" + path, target), "image/png")
+        self.assertEqual(target.getvalue(), payload)
+        self.assertEqual(connection.request.call_args.args, ("GET", path))
+        self.assertEqual(authorized_origins(), {"media.example"})
+        with override_settings(GENERATION_DOWNLOAD_ORIGINS=["https://media.example" + path]):
+            self.assertEqual(authorized_origins(), set())
+
+    @override_settings(GENERATION_DOWNLOAD_ORIGINS=["https://media.example"])
     def test_origin_private_dns_and_redirects_are_rejected(self):
         from apps.jobs.downloads import DownloadRejected, download_image
 
