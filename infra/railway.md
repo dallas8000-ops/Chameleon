@@ -5,7 +5,8 @@ frontend delivery in this repository have been exercised locally; no Railway
 environment has been created, so nothing here is production-verified yet.
 
 Deployment artifacts live at the repository root so Railway picks them up
-automatically:
+automatically. For first-time dashboard setup, follow
+[railway-manual-setup.md](./railway-manual-setup.md).
 
 | File | Purpose |
 | --- | --- |
