@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 db.sqlite3
 
 # Virtual env
@@ -17,3 +18,12 @@ dist/
 
 # Superpowers session artifacts
 .superpowers/
+
+backend/private_media/
+backend/staticfiles/
+
+e2e/.runtime/
+e2e/.runtime-results/
+e2e/.runtime-integration/
+e2e/.runtime-results-integration/
+local-infrastructure-report.md

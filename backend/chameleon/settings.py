@@ -1,80 +1,235 @@
+import json
 import os
+import re
 import sys
 from pathlib import Path
+
 import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Determine if running tests
-RUNNING_TESTS = 'test' in sys.argv
+RUNNING_TESTS = "test" in sys.argv
 
-# Secrets and debug from environment
+
+def env_bool(name: str, default: bool = False) -> bool:
+    return os.environ.get(name, str(default)).lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name: str) -> list[str]:
+    value = os.environ.get(name, "")
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def env_json(name, fallback):
+    try:
+        return json.loads(os.environ.get(name, json.dumps(fallback)))
+    except (ValueError, TypeError):
+        return fallback
+
 if RUNNING_TESTS:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'test-secret')
+    SECRET_KEY = os.environ.get("SECRET_KEY", "test-secret")
 else:
-    # Require SECRET_KEY in environment for non-test runs
-    SECRET_KEY = os.environ.get('SECRET_KEY')
+    SECRET_KEY = os.environ.get("SECRET_KEY")
     if not SECRET_KEY:
-        raise RuntimeError('SECRET_KEY environment variable must be set in production')
+        raise RuntimeError("SECRET_KEY environment variable must be set in production")
 
-DEBUG = os.environ.get('DEBUG', 'False').lower() in ('1', 'true', 'yes')
+DEBUG = env_bool("DEBUG", False)
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') if os.environ.get('ALLOWED_HOSTS') else []
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS")
+# Railway probes the container with Host: healthcheck.railway.app, which would
+# otherwise be rejected before the health view runs.
+RAILWAY_HEALTHCHECK_HOST = "healthcheck.railway.app"
+
+
+def with_healthcheck_host(hosts: list[str]) -> list[str]:
+    """Admit Railway's health probe without widening an explicit host list."""
+    if hosts and RAILWAY_HEALTHCHECK_HOST not in hosts:
+        return [*hosts, RAILWAY_HEALTHCHECK_HOST]
+    return hosts
+
+
+ALLOWED_HOSTS = with_healthcheck_host(ALLOWED_HOSTS)
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'rest_framework',
-    'api',
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "apps.accounts.apps.AccountsConfig",
+    "apps.studio.apps.StudioConfig",
+    "apps.jobs.apps.JobsConfig",
+    "apps.rendering.apps.RenderingConfig",
+    "api",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
 ]
 
-ROOT_URLCONF = 'chameleon.urls'
+ROOT_URLCONF = "chameleon.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
-    },
+    }
 ]
 
-WSGI_APPLICATION = 'chameleon.wsgi.application'
+WSGI_APPLICATION = "chameleon.wsgi.application"
 
-# Database configuration: prefer DATABASE_URL (Postgres) in production; tests use sqlite in-memory
+AUTH_USER_MODEL = "accounts.User"
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
 if RUNNING_TESTS:
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': ':memory:',
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+    if os.environ.get("CHAMELEON_TEST_DATABASE_URL"):
+        DATABASES = {"default": dj_database_url.parse(os.environ["CHAMELEON_TEST_DATABASE_URL"], conn_max_age=0)}
+else:
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable must be set in production")
+    DATABASES = {"default": dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
+
+for config in DATABASES.values():
+    if config.get("ENGINE") == "django.db.backends.postgresql":
+        config.setdefault("CONN_HEALTH_CHECKS", True)
+
+CELERY_BROKER_URL = os.environ.get(
+    "CELERY_BROKER_URL",
+    os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+)
+MAGIC_HOUR_API_KEY = os.environ.get("MAGIC_HOUR_API_KEY", "")
+MAGIC_HOUR_WEBHOOK_SECRET = os.environ.get("MAGIC_HOUR_WEBHOOK_SECRET", "")
+# Approval of code is not approval of live pricing, destinations, or deployment storage.
+GENERATION_IMAGE_TARIFF = env_json("GENERATION_IMAGE_TARIFF", {})
+GENERATION_DOWNLOAD_ORIGINS = env_json("GENERATION_DOWNLOAD_ORIGINS", [])
+GENERATION_STORAGE_CONFIRMED = env_bool("GENERATION_STORAGE_CONFIRMED", False)
+CELERY_BEAT_SCHEDULE = {
+    "recover-exports": {
+        "task": "apps.rendering.tasks.recover_exports",
+        "schedule": 30.0,
+    },
+    "recover-provider-polls": {
+        "task": "apps.jobs.tasks.recover_provider_polls",
+        "schedule": 30.0,
+    },
+    "recover-generated-assets": {
+        "task": "apps.jobs.ingestion.recover_ingestions",
+        "schedule": 30.0,
+    },
+}
+
+if RUNNING_TESTS:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "chameleon-tests",
         }
     }
 else:
-    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://user:password@localhost:5432/chameleon')
-    DATABASES = {'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
+    REDIS_URL = os.environ.get("REDIS_URL")
+    if not REDIS_URL:
+        raise RuntimeError("REDIS_URL environment variable must be set for shared auth throttling")
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "KEY_PREFIX": "chameleon",
+        }
+    }
 
-# Celery
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "auth": os.environ.get("AUTH_THROTTLE_RATE", "5/minute"),
+        "generation_quote": "20/minute",
+    },
+}
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+STATIC_URL = "/static/"
+STATIC_ROOT = os.environ.get("STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+# Built single-page app served same-origin with /api so session cookies and CSRF stay first-party.
+FRONTEND_DIST_DIR = os.environ.get(
+    "FRONTEND_DIST_DIR",
+    str(BASE_DIR.parent / "frontend" / "dist"),
+)
+if Path(FRONTEND_DIST_DIR).is_dir():
+    WHITENOISE_ROOT = FRONTEND_DIST_DIR
+# "/" must reach the SPA view, which sends the entry document uncached.
+WHITENOISE_INDEX_FILE = False
+# Scanning a collected static directory is a production concern only.
+WHITENOISE_AUTOREFRESH = DEBUG or RUNNING_TESTS
 
-STATIC_URL = '/static/'
+_VITE_HASHED_ASSET = re.compile(r"^/assets/.+-[0-9A-Za-z_-]{8,}\.[0-9A-Za-z]+$")
+
+
+def immutable_vite_asset(path, url):
+    """Vite emits content-hashed bundles under /assets/, so they never change in place."""
+    return bool(_VITE_HASHED_ASSET.match(url))
+
+
+WHITENOISE_IMMUTABLE_FILE_TEST = immutable_vite_asset
+# Private upload storage (local filesystem); no MEDIA_URL is served.
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "private_media"))
+STUDIO_MAX_UPLOAD_BYTES = int(os.environ.get("STUDIO_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
+FFMPEG_BINARY = os.environ.get("FFMPEG_BINARY", "ffmpeg")
+FFPROBE_BINARY = os.environ.get("FFPROBE_BINARY", "ffprobe")
+USE_TZ = True
+TIME_ZONE = "UTC"
+
+SESSION_COOKIE_HTTPONLY = env_bool("SESSION_COOKIE_HTTPONLY", True)
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG and not RUNNING_TESTS)
+SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_HTTPONLY = env_bool("CSRF_COOKIE_HTTPONLY", False)
+CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG and not RUNNING_TESTS)
+CSRF_COOKIE_SAMESITE = os.environ.get("CSRF_COOKIE_SAMESITE", "Lax")
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG and not RUNNING_TESTS)
+# Railway probes the container over plain HTTP; a redirect there would fail the health check.
+SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
+SECURE_HSTS_SECONDS = int(
+    os.environ.get("SECURE_HSTS_SECONDS", "31536000" if not DEBUG and not RUNNING_TESTS else "0")
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    not DEBUG and not RUNNING_TESTS,
+)
+SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", not DEBUG and not RUNNING_TESTS)
+if env_bool("USE_X_FORWARDED_PROTO", True):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

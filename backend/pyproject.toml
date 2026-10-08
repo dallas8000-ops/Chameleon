@@ -7,7 +7,7 @@ name = "chameleon-backend"
 version = "0.1.0"
 description = "Chameleon backend scaffold"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Proprietary" }
 
 [tool.setuptools.packages.find]
 where = [""]

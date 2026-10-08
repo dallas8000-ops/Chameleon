@@ -1,3 +1,182 @@
 Chameleon backend package
 
-This directory is a Python package root for editable install during development.
+This directory is the Django backend package root for local development and tests.
+
+Current API foundation:
+
+- `GET /api/health/`
+- `GET /api/auth/csrf/`
+- `POST /api/auth/register/`
+- `POST /api/auth/login/`
+- `POST /api/auth/logout/`
+- `GET /api/auth/session/`
+- `GET /api/workspaces/`
+- `PATCH /api/workspaces/<id>/`
+- `POST /api/jobs/image-generation/`
+- `POST /api/jobs/presenter-generation/`
+- `GET /api/jobs/<id>/`
+
+The backend uses a custom email-based user model in `apps.accounts`, session authentication with CSRF protection, and workspace membership RBAC.
+
+## Studio asset uploads
+
+`POST /api/assets/` accepts multipart uploads for workspace owners and editors.
+The default `STUDIO_MAX_UPLOAD_BYTES` limit is 25 MiB and is enforced while
+multipart files are being parsed, across all file parts in the request; an
+oversized upload returns HTTP 413. The later service-level size check remains
+as defense in depth. Supported file signatures are PNG, JPEG, GIF, WebP, MP4,
+and WebM, and the declared content type must match the detected signature.
+Uploads use private local Django storage and are not durable across Railway
+deployments without persistent storage configuration.
+
+## Shared throttling
+
+Non-test processes require `REDIS_URL` for Django's shared Redis cache and
+`redis` from `requirements.txt`. Point every API worker at the same Redis
+instance/database; `AUTH_THROTTLE_RATE` defaults to `5/minute` for the shared
+login/register scope. Prefer a separate Redis database from Celery.
+Only tests use an explicit in-memory cache, cleared between auth tests.
+DRF's cache-based throttle is an abuse guard, not an exact concurrent request
+quota; deployment edge rate limiting should supplement it.
+
+## Isolated integration harness
+
+Use the dedicated production-like harness when you need a local proof that
+PostgreSQL, Redis, the Django API, a separate Celery worker, Celery Beat, and
+the Vite frontend operate together without touching any pre-existing localhost
+services.
+
+From the repository root:
+
+```powershell
+npm --prefix ".\e2e" run stack:integration
+```
+
+That script creates and owns a fresh runtime under
+`e2e\.runtime-integration`, boots a local PostgreSQL cluster on `55449`,
+Redis on `56379`, Django on `18080`, Celery Beat with its schedule file also
+inside the runtime directory, a separate Celery worker, and the frontend on
+`15174`. The corresponding Django settings module is
+`chameleon.settings_integration`, which is fail-closed: it requires the
+integration opt-in environment flag, rejects default shared ports, confines
+media storage to the runtime directory, and blanks provider secrets.
+
+For the full browser verification against that stack:
+
+```powershell
+$env:PLAYWRIGHT_CHANNEL = "msedge"
+npm --prefix ".\e2e" run test:integration -- --grep "creator registers"
+```
+
+## Generation jobs and provider setup
+
+Generation requests first persist a workspace-scoped job, then submit it to the
+Celery worker. The worker uses only Magic Hour's documented
+`POST /v1/ai-image-generator`, `POST /v1/ai-talking-photo`, and corresponding
+image/video project status endpoints. Configure `MAGIC_HOUR_API_KEY` only in
+the backend environment; it is optional. Set `MAGIC_HOUR_WEBHOOK_SECRET` to
+enable signed callback handling at `/api/jobs/webhooks/magic-hour/`. The
+endpoint verifies Magic Hour's documented HMAC-SHA256 signature and five-minute
+timestamp window before applying updates. Without an API key, a request persists a
+`blocked_provider_not_configured` job and no provider request or worker task is
+made. Run a Celery worker from this directory with
+`python -m celery -A chameleon worker -l info`.
+Also run `python -m celery -A chameleon beat -l info` (one scheduler instance):
+every 30 seconds it sweeps due durable polling schedules. Accepted provider IDs
+and polling due times are committed together before dispatch, so a broker outage
+or worker crash cannot erase the need to track an accepted paid request.
+
+The broker-independent recovery command `python manage.py poll_generation_jobs`
+checks up to 100 due jobs directly. Operators can run it repeatedly (or from a
+scheduled Railway job) during broker outages. Concurrent pollers honor a
+60-second persisted lease; HTTP requests time out at 20 seconds. Status-fetch
+errors retain the last provider state and retry with backoff capped at 240
+seconds. After 80 polls, local tracking stops with `failed` and
+`provider_poll_exhausted`; this is **not** evidence of provider rendering failure.
+Use `python manage.py poll_generation_jobs --resume-job <id>` to reset that
+tracking budget and check the existing provider job, never resubmit generation.
+Real provider terminal failures cannot be resumed with this command.
+
+### Interrupted submission reconciliation
+
+Magic Hour's [retry guidance](https://docs.magichour.ai/integration/development-and-testing)
+does not promise deduplicated creation POSTs or a usable `Idempotency-Key`.
+It instructs callers to check project history when acceptance is uncertain.
+Chameleon therefore never automatically resubmits a claimed generation.
+The Beat sweeper and `poll_generation_jobs` command mark claimed
+`pending_provider` jobs with no provider ID as `failed` after five minutes,
+with `provider_submission_outcome_unknown`. Repeated deliveries also detect
+stale claims. The API exposes that structured error only to workspace members.
+This error means possible acceptance/credit charge, **not** provider failure.
+
+Operator runbook (trusted backend shell/database access only; no public
+reconciliation endpoint):
+
+1. Inspect the local job's workspace, submission timestamp and preserved request.
+   Check the authorized Magic Hour account's project history/dashboard or contact
+   provider support. Confirm the matching project and actual ID from that
+   evidence; never infer an ID from a prompt or submit another POST to test it.
+2. Attach a confirmed ID:
+   `python manage.py reconcile_generation_job <job-id> --workspace-id <workspace-id> --provider-job-id <actual-id> --note "<evidence>"`
+   The command requires an eligible unknown job in that exact workspace, checks
+   the provider's corresponding status GET and returned ID, rejects IDs already
+   attached to another job, records an evidence note, and resumes tracking.
+   The GET confirms existence in the configured account, not tenant ownership;
+   operators must verify the history/request match before attaching an ID.
+3. If no ID can be recovered after investigation, explicitly close **local**
+   tracking:
+   `python manage.py reconcile_generation_job <job-id> --workspace-id <workspace-id> --close --note "<investigation and resolution>"`
+   It retains `failed` with `provider_submission_tracking_closed`. It neither
+   cancels a provider project nor claims a refund or grants permission to retry.
+   Keep investigating unresolved possible charges outside automatic generation.
+
+Both actions retain a private database audit record and never issue generation
+POSTs. They reject already resolved jobs and require a non-empty evidence note.
+An original worker response arriving after stale detection can restore tracking
+using the real returned ID, but cannot overwrite an operator-closed job.
+
+Magic Hour Talking Photo animates an existing portrait with an existing audio
+file; it does not synthesize a spoken script. The presenter endpoint accepts only
+`image_asset_id` and `audio_asset_id`, verifies both belong to the requested
+workspace, and checks their media types. Caller-chosen provider paths and URLs
+are rejected, including when asset IDs are supplied. Studio currently supports
+image/video uploads, not audio ingestion; no secure local-Asset-to-Magic-Hour
+upload mapping exists yet. Accordingly presenter requests with otherwise valid
+owned inputs return a structured `capability_unavailable` block, without paid
+submission. Legacy presenter jobs also cannot submit arbitrary input paths, and
+those paths are not returned on job reads. The API returns an
+honest job state; the worker polls provider status without inventing progress
+or completed assets. Provider errors are retained as structured codes and
+messages. Usage ledger writes and repeated provider updates are idempotent.
+`quoted_credits` is populated from Magic Hour's submission response and may be
+adjusted when rendering finishes; it is zero while a job is waiting for provider
+acceptance. Completed results retain provider download URLs, which are temporary
+(typically expiring within 24 hours); this task does not copy outputs into
+durable `Asset` storage.
+
+## Same-origin browser contract
+
+The future Task 6 auth client must call relative `/api/...` URLs from the
+frontend origin and include session cookies (`credentials: 'same-origin'`).
+First fetch `GET /api/auth/csrf/`, then send the returned `csrfToken` in
+`X-CSRFToken` for every unsafe request, including anonymous login/register
+and authenticated logout. Django rotates the CSRF secret on login/register;
+fetch a fresh token after either succeeds. Session bootstrap is
+`GET /api/auth/session/`; wiring its UI/store remains Task 6.
+
+During development, Vite proxies `/api` to `http://127.0.0.1:8000`.
+Set `BACKEND_URL` in the frontend environment to choose another backend.
+The proxy preserves the browser Host and Origin (`changeOrigin: false`),
+so Django's same-origin CSRF checks and cookies work without CORS.
+Run the backend with `DEBUG=1` locally and include the frontend hostname
+(for example `localhost` or `127.0.0.1`) in `ALLOWED_HOSTS`.
+Use the Vite development server, not a direct cross-origin API URL.
+
+On Railway, the public HTTPS origin must serve the frontend and reverse-proxy
+`/api` to Django; a Vite development proxy is not a production reverse proxy.
+Preserve the public Host/Origin, set `ALLOWED_HOSTS` to that host, and forward
+`X-Forwarded-Proto: https` only from the trusted ingress (strip untrusted
+client forwarding headers). Keep production secure cookies/TLS enabled.
+Separate frontend/API origins require a later approved credentialed CORS
+design with exact origins, CSRF trusted origins, and cookie policy; do not
+enable wildcard/broad CORS as a workaround.

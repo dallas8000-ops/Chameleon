@@ -1,13 +1,29 @@
-import React from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import Home from '../pages/Home'
+import React, { useState } from "react";
+import { createBrowserRouter, createMemoryRouter, RouterProvider, type RouteObject } from "react-router-dom";
+
+import { LoginPage } from "../features/auth/LoginForm";
+import { RegisterPage } from "../features/auth/RegisterForm";
+import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { ExportPage } from "../features/exports/ExportPage";
+import { StudioPage } from "../features/studio/StudioPage";
+import Home from "../pages/Home";
+
+export const appRoutes: RouteObject[] = [
+  { path: "/", element: <Home /> },
+  { path: "/register", element: <RegisterPage /> },
+  { path: "/login", element: <LoginPage /> },
+  { path: "/app", element: <DashboardPage /> },
+  { path: "/app/projects/:id/studio", element: <StudioPage /> },
+  { path: "/app/projects/:id/export", element: <ExportPage /> },
+];
+
+/** Pass `initialEntries` to get an in-memory router (tests); otherwise uses browser history. */
+export function createAppRouter(initialEntries?: string[]) {
+  return initialEntries ? createMemoryRouter(appRoutes, { initialEntries }) : createBrowserRouter(appRoutes);
+}
 
 export default function Router() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path='/' element={<Home />} />
-      </Routes>
-    </BrowserRouter>
-  )
+  const [router] = useState(() => createAppRouter());
+  return <RouterProvider router={router} />;
 }
+
