@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -35,6 +36,19 @@ else:
 DEBUG = env_bool("DEBUG", False)
 
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS")
+# Railway probes the container with Host: healthcheck.railway.app, which would
+# otherwise be rejected before the health view runs.
+RAILWAY_HEALTHCHECK_HOST = "healthcheck.railway.app"
+
+
+def with_healthcheck_host(hosts: list[str]) -> list[str]:
+    """Admit Railway's health probe without widening an explicit host list."""
+    if hosts and RAILWAY_HEALTHCHECK_HOST not in hosts:
+        return [*hosts, RAILWAY_HEALTHCHECK_HOST]
+    return hosts
+
+
+ALLOWED_HOSTS = with_healthcheck_host(ALLOWED_HOSTS)
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
@@ -53,6 +67,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -169,6 +184,28 @@ REST_FRAMEWORK = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 STATIC_URL = "/static/"
+STATIC_ROOT = os.environ.get("STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+# Built single-page app served same-origin with /api so session cookies and CSRF stay first-party.
+FRONTEND_DIST_DIR = os.environ.get(
+    "FRONTEND_DIST_DIR",
+    str(BASE_DIR.parent / "frontend" / "dist"),
+)
+if Path(FRONTEND_DIST_DIR).is_dir():
+    WHITENOISE_ROOT = FRONTEND_DIST_DIR
+# "/" must reach the SPA view, which sends the entry document uncached.
+WHITENOISE_INDEX_FILE = False
+# Scanning a collected static directory is a production concern only.
+WHITENOISE_AUTOREFRESH = DEBUG or RUNNING_TESTS
+
+_VITE_HASHED_ASSET = re.compile(r"^/assets/.+-[0-9A-Za-z_-]{8,}\.[0-9A-Za-z]+$")
+
+
+def immutable_vite_asset(path, url):
+    """Vite emits content-hashed bundles under /assets/, so they never change in place."""
+    return bool(_VITE_HASHED_ASSET.match(url))
+
+
+WHITENOISE_IMMUTABLE_FILE_TEST = immutable_vite_asset
 # Private upload storage (local filesystem); no MEDIA_URL is served.
 MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "private_media"))
 STUDIO_MAX_UPLOAD_BYTES = int(os.environ.get("STUDIO_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
@@ -184,6 +221,8 @@ CSRF_COOKIE_HTTPONLY = env_bool("CSRF_COOKIE_HTTPONLY", False)
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG and not RUNNING_TESTS)
 CSRF_COOKIE_SAMESITE = os.environ.get("CSRF_COOKIE_SAMESITE", "Lax")
 SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG and not RUNNING_TESTS)
+# Railway probes the container over plain HTTP; a redirect there would fail the health check.
+SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
 SECURE_HSTS_SECONDS = int(
     os.environ.get("SECURE_HSTS_SECONDS", "31536000" if not DEBUG and not RUNNING_TESTS else "0")
 )

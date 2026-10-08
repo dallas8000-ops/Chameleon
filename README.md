@@ -24,7 +24,9 @@ Backend export, frontend auth, studio workflow and gated image-integration
 reviews are complete. Local browser end-to-end verification now passes in both
 the original SQLite/eager harness and a separate production-like harness with an
 owned PostgreSQL cluster, owned Redis, a separate Celery worker and Celery Beat.
-Railway deployment checks still remain.
+Railway deployment manifests, the release configuration check and same-origin
+frontend delivery are now in the repository and verified locally; no Railway
+environment has been created, so the deployment itself is still unverified.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
@@ -40,14 +42,16 @@ Railway deployment checks still remain.
 | Presenter generation (prior direction) | Disabled | Existing path remains unchanged pending a separate inference-architecture decision |
 | Generated media to editable scenes | Implemented; activation gated | Bounded private ingestion and recovery; download origins and durable storage need operator verification |
 | Browser end-to-end verification | Passing locally | Unmocked register, login, project, upload, scene, captions and export via Playwright; verified in both the SQLite/eager harness and an isolated PostgreSQL/Redis/worker/Beat harness |
-| Railway production deployment | Planned | Persistent private storage and worker infrastructure need deployment verification |
+| Same-origin frontend delivery | Locally verified | Django/WhiteNoise serves the built Vite bundle: hashed `/assets/*` cached immutably, client routes fall back to an uncached entry document, `/api` unaffected |
+| Railway deployment manifests | Committed; not deployed | `railway.json`, `nixpacks.toml` and `Procfile` describe one service running gunicorn, the Celery worker and Beat under `honcho` with a single `/data` volume; release step runs migrations plus `check_deployment` |
+| Railway production deployment | Planned | No environment created yet; volume persistence, worker execution and storage still need deployment verification |
 
 The existing provider-backed generation code reflects a prior direction, not
 the target architecture. Chameleon-owned inference is intended; its design is
 being decided separately. The local production-like smoke uses uploaded media
 only and makes no inference-service calls.
 
-**Latest recorded checks:** the default backend suite completed with 164 tests
+**Latest recorded checks:** the default backend suite completed with 214 tests
 (6 skipped); the isolated PostgreSQL integration suite completed with 173 tests,
 the focused PostgreSQL export plus Celery-registration coverage completed with
 29 tests, and 79 frontend tests passed. Frontend typecheck and build were clean,
@@ -100,9 +104,12 @@ durable storage are verified; live provider downloads have not been exercised.
 
 - **Backend:** Django 5, DRF, PostgreSQL, Celery and Redis.
 - **Frontend:** React, Vite, TypeScript, Tailwind CSS, Zustand and React Router.
+  The built bundle is served same-origin by the API in deployment.
 - **Rendering:** FFmpeg and FFprobe, executed by background workers.
-- **Hosting target:** Railway, with persistent private media storage shared by
-  the API and rendering workers.
+- **Hosting target:** Railway. Because a Railway volume attaches to exactly one
+  service, the API, Celery worker and Celery Beat run together in a single
+  service sharing one private media volume; splitting them apart requires shared
+  object storage. See the [Railway runbook](./infra/railway.md).
 
 ## Five-minute quickstart
 
@@ -165,8 +172,9 @@ Set-Location "C:\Software Projects\Chameleon\backend"
 Missing rendering binaries produce explicit failures. Generation credentials
 are optional for exploring the uploaded-media workflow; enabling provider-backed
 API requests can incur charges. See [backend setup and recovery](./backend/README.md)
-and [environment examples](./infra/) for configuration details. The planned Railway
-topology and pre-launch checks are in the [Railway runbook](./infra/railway.md). The planned Railway\ntopology and pre-launch checks are in the [Railway runbook](./infra/railway.md).
+and [environment examples](./infra/) for configuration details. The Railway
+topology, deployment manifests and pre-launch checks are in the
+[Railway runbook](./infra/railway.md).
 For inactive-by-default generation gates, tariff verification and private
 ingestion operations, see [image integration runbook](./docs/generation-image-integration.md).
 
@@ -180,6 +188,15 @@ Set-Location "C:\Software Projects\Chameleon"
 npm --prefix ".\frontend" run test -- --run
 npm --prefix ".\frontend" run typecheck
 npm --prefix ".\frontend" run build
+```
+
+Deployment configuration is checked separately, against whatever environment
+variables are loaded in the current terminal (this is also the Railway release
+step):
+
+```powershell
+Set-Location "C:\Software Projects\Chameleon\backend"
+& "..\.venv\Scripts\python.exe" manage.py check_deployment --role all
 ```
 
 Backend tests use isolated SQLite/cache settings and controlled provider/broker

@@ -20,6 +20,7 @@ dist/
 .superpowers/
 
 backend/private_media/
+backend/staticfiles/
 
 e2e/.runtime/
 e2e/.runtime-results/
