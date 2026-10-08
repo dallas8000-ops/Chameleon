@@ -87,8 +87,14 @@ rejected as a disallowed host.
 `railway.json` runs this before each deploy becomes active:
 
 ```
-python manage.py migrate --noinput && python manage.py check_deployment --role all
+python manage.py migrate --noinput && python manage.py check_deployment --role all --skip-media-write-probe
 ```
+
+Railway does **not** mount volumes during pre-deploy, so the `MEDIA_ROOT` write
+test is skipped there (it would only exercise throwaway disk). The start command
+runs `check_deployment --role all` again, with the volume mounted and the write
+probe enabled, before `honcho` launches the processes. A misconfigured volume
+therefore fails the health check and the previous deployment keeps serving.
 
 `check_deployment` fails the release on: `DEBUG` left on, a placeholder or short
 `SECRET_KEY`, empty or wildcard `ALLOWED_HOSTS`, non-https

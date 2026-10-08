@@ -298,6 +298,18 @@ class DeploymentCheckTest(ProductionSettingsMixin, TestCase):
         self.assertFalse(any('not writable' in problem for problem in beat_problems))
 
 
+    def test_media_write_probe_can_be_skipped_where_the_volume_is_unmounted(self):
+        with tempfile.TemporaryDirectory() as parent:
+            blocker = Path(parent, 'not-a-directory')
+            blocker.write_bytes(b'')
+            unwritable = str(blocker / 'private_media')
+            with self.settings(**self.settings_for(MEDIA_ROOT=unwritable)):
+                probed = collect_deployment_problems('web')
+                skipped = collect_deployment_problems('web', probe_media_write=False)
+        self.assertTrue(any('not writable' in problem for problem in probed))
+        self.assertFalse(any('not writable' in problem for problem in skipped))
+
+
 class DeploymentManifestTest(TestCase):
     """The committed Railway manifests must stay consistent with the application."""
 
@@ -326,6 +338,18 @@ class DeploymentManifestTest(TestCase):
         pre_deploy = self.railway_config()['deploy']['preDeployCommand']
         self.assertIn('manage.py migrate --noinput', pre_deploy)
         self.assertIn('manage.py check_deployment', pre_deploy)
+
+    def test_release_step_does_not_probe_the_unmounted_volume(self):
+        # Railway does not mount volumes during pre-deploy, so a write probe there
+        # would test throwaway disk and could pass with the volume misconfigured.
+        pre_deploy = self.railway_config()['deploy']['preDeployCommand']
+        self.assertIn('--skip-media-write-probe', pre_deploy)
+
+    def test_start_command_probes_the_mounted_volume_before_serving(self):
+        start = self.railway_config()['deploy']['startCommand']
+        self.assertIn('manage.py check_deployment --role all', start)
+        self.assertNotIn('--skip-media-write-probe', start)
+        self.assertLess(start.index('check_deployment'), start.index('honcho start'))
 
     def test_start_command_supervises_the_procfile(self):
         start = self.railway_config()['deploy']['startCommand']

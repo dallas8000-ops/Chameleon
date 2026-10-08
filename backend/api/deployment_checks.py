@@ -177,13 +177,16 @@ def _check_generation_gates(problems: list[str]) -> None:
         )
 
 
-def collect_deployment_problems(role: str = "all") -> list[str]:
+def collect_deployment_problems(role: str = "all", probe_media_write: bool = True) -> list[str]:
     """Return every production misconfiguration found for ``role``.
 
     ``role`` is one of ``web``, ``worker``, ``beat`` or ``all``. The deployed
     Railway service runs all three processes in one container and uses ``all``;
     the narrower roles exist so the checks stay meaningful if the processes are
     ever split onto shared object storage.
+
+    ``probe_media_write`` must be false where the volume is not mounted (Railway's
+    pre-deploy container), otherwise the probe would test throwaway disk.
     """
     if role not in ROLES + ("all",):
         raise ValueError(f"Unknown role '{role}'; expected one of {', '.join(ROLES + ('all',))}.")
@@ -192,7 +195,9 @@ def collect_deployment_problems(role: str = "all") -> list[str]:
     _check_core(problems)
     _check_security_headers(problems)
     _check_backing_services(problems)
-    _check_media_root(problems, probe_write=role in {"web", "worker", "all"})
+    _check_media_root(
+        problems, probe_write=probe_media_write and role in {"web", "worker", "all"}
+    )
     _check_generation_gates(problems)
     if role in {"web", "all"}:
         _check_frontend_bundle(problems)

@@ -13,10 +13,18 @@ class Command(BaseCommand):
             default="all",
             help="Service role to check: web, worker, beat or all (default: all).",
         )
+        parser.add_argument(
+            "--skip-media-write-probe",
+            action="store_true",
+            help="Skip the MEDIA_ROOT write test; use where the volume is not mounted "
+            "(Railway pre-deploy).",
+        )
 
     def handle(self, *args, **options):
         role = options["role"]
-        problems = collect_deployment_problems(role)
+        problems = collect_deployment_problems(
+            role, probe_media_write=not options["skip_media_write_probe"]
+        )
         if problems:
             for problem in problems:
                 self.stderr.write(f"- {problem}")
