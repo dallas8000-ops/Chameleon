@@ -153,10 +153,6 @@ class ProductionSettingsMixin:
                 }
             },
             'CELERY_BROKER_URL': 'redis://redis.railway.internal:6379/0',
-            'MAGIC_HOUR_API_KEY': '',
-            'MAGIC_HOUR_WEBHOOK_SECRET': '',
-            'GENERATION_DOWNLOAD_ORIGINS': [],
-            'GENERATION_STORAGE_CONFIRMED': False,
             'FFMPEG_BINARY': 'ffmpeg',
             'FFPROBE_BINARY': 'ffprobe',
             'MEDIA_ROOT': self._media.name,
@@ -273,13 +269,6 @@ class DeploymentCheckTest(ProductionSettingsMixin, TestCase):
         self.assertTrue(any('FFmpeg binary' in problem for problem in worker_problems))
         self.assertTrue(any('FFprobe binary' in problem for problem in worker_problems))
         self.assertFalse(any('FFmpeg binary' in problem for problem in web_problems))
-
-    def test_provider_key_requires_verified_gates(self):
-        with self.settings(**self.settings_for(MAGIC_HOUR_API_KEY='live-key')):
-            problems = collect_deployment_problems('web')
-        self.assertTrue(any('GENERATION_DOWNLOAD_ORIGINS' in problem for problem in problems))
-        self.assertTrue(any('GENERATION_STORAGE_CONFIRMED' in problem for problem in problems))
-        self.assertTrue(any('MAGIC_HOUR_WEBHOOK_SECRET' in problem for problem in problems))
 
     def test_unknown_role_is_rejected(self):
         with self.assertRaises(ValueError):

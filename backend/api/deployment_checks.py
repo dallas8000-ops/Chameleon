@@ -154,29 +154,6 @@ def _check_render_tools(problems: list[str]) -> None:
             )
 
 
-def _check_generation_gates(problems: list[str]) -> None:
-    if not settings.MAGIC_HOUR_API_KEY:
-        return
-    if not settings.GENERATION_DOWNLOAD_ORIGINS:
-        _problem(
-            problems,
-            "MAGIC_HOUR_API_KEY is set but GENERATION_DOWNLOAD_ORIGINS is empty; "
-            "authorized download origins must be verified first.",
-        )
-    if not settings.GENERATION_STORAGE_CONFIRMED:
-        _problem(
-            problems,
-            "MAGIC_HOUR_API_KEY is set but GENERATION_STORAGE_CONFIRMED is false; "
-            "durable private storage must be confirmed first.",
-        )
-    if not settings.MAGIC_HOUR_WEBHOOK_SECRET:
-        _problem(
-            problems,
-            "MAGIC_HOUR_API_KEY is set but MAGIC_HOUR_WEBHOOK_SECRET is empty; "
-            "provider webhooks would be unauthenticated.",
-        )
-
-
 def collect_deployment_problems(role: str = "all", probe_media_write: bool = True) -> list[str]:
     """Return every production misconfiguration found for ``role``.
 
@@ -198,7 +175,6 @@ def collect_deployment_problems(role: str = "all", probe_media_write: bool = Tru
     _check_media_root(
         problems, probe_write=probe_media_write and role in {"web", "worker", "all"}
     )
-    _check_generation_gates(problems)
     if role in {"web", "all"}:
         _check_frontend_bundle(problems)
         _check_healthcheck_host(problems)

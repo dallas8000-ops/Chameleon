@@ -51,7 +51,7 @@ the target architecture. Chameleon-owned inference is intended; its design is
 being decided separately. The local production-like smoke uses uploaded media
 only and makes no inference-service calls.
 
-**Latest recorded checks:** the default backend suite completed with 219 tests
+**Latest recorded checks:** the default backend suite completed with 218 tests
 (6 skipped); the isolated PostgreSQL integration suite completed with 173 tests,
 the focused PostgreSQL export plus Celery-registration coverage completed with
 29 tests, and 79 frontend tests passed. Frontend typecheck and build were clean,

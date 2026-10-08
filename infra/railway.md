@@ -75,7 +75,6 @@ Set these as Railway service variables (secrets never in source):
 | `MEDIA_ROOT` | `/data/private_media` on the mounted volume |
 | `CELERY_BEAT_SCHEDULE_FILE` | Optional; defaults to `/data/celerybeat-schedule` |
 | `WEB_CONCURRENCY` / `CELERY_CONCURRENCY` | Optional process counts (default 3 and 2) |
-| `MAGIC_HOUR_API_KEY` | Leave **empty**; see the gating note below |
 
 Secure cookies, SSL redirect and HSTS default to on when `DEBUG=0`. Railway
 terminates TLS and forwards `X-Forwarded-Proto`, which `USE_X_FORWARDED_PROTO`
@@ -110,8 +109,7 @@ the volume is not mounted.
 database, a non-Redis cache, a localhost broker, a `MEDIA_ROOT` that is relative,
 inside the rebuilt application directory or unwritable, a missing frontend
 bundle, an uncollected `STATIC_ROOT`, an `ALLOWED_HOSTS` that would reject the
-Railway health probe, missing FFmpeg/FFprobe, and a provider API key set while
-its download-origin, storage and webhook-secret gates are unverified.
+Railway health probe, and missing FFmpeg/FFprobe.
 
 Run it against any environment with:
 
@@ -131,20 +129,16 @@ Done on 2026-10-08 against the live service:
   h264/aac 1080x1920 and decodes without errors; a second user is denied the
   first user's project, export and downloads.
 - [x] The worker and Beat sweepers run without errors.
+- [x] Redeploys work (`railway redeploy`), and an export created before a redeploy
+  is byte-identical and downloadable after it (volume persistence).
 
 Still open:
 
-1. Redeploy from the new `Dockerfile` and confirm uploads and exports survive
-   (volume persistence). Record the result here.
-2. Run the Django suite against a **disposable** PostgreSQL database
+1. Run the Django suite against a **disposable** PostgreSQL database
    (`CHAMELEON_TEST_DATABASE_URL`); the 6 generation-race skips only apply to
    SQLite.
-3. Confirm exactly one beat process is running and that killing the worker
+2. Confirm exactly one beat process is running and that killing the worker
    mid-export is recovered by the sweeper.
-4. Only then follow the
-   [generation runbook](../docs/generation-image-integration.md) for quotes,
-   tariffs, download origins and storage confirmation before setting
-   `MAGIC_HOUR_API_KEY`.
 
 ## Rollback
 

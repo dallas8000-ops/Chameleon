@@ -53,7 +53,6 @@ On the `chameleon` service, **Variables**:
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` |
 | `MEDIA_ROOT` | `/data/private_media` |
-| `MAGIC_HOUR_API_KEY` | Leave unset or empty |
 
 Optional: `CELERY_BROKER_URL` (defaults to `REDIS_URL`), `WEB_CONCURRENCY`
 (default 3), `CELERY_CONCURRENCY` (default 2).
