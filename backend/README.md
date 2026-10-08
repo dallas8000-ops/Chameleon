@@ -39,6 +39,35 @@ Only tests use an explicit in-memory cache, cleared between auth tests.
 DRF's cache-based throttle is an abuse guard, not an exact concurrent request
 quota; deployment edge rate limiting should supplement it.
 
+## Isolated integration harness
+
+Use the dedicated production-like harness when you need a local proof that
+PostgreSQL, Redis, the Django API, a separate Celery worker, Celery Beat, and
+the Vite frontend operate together without touching any pre-existing localhost
+services.
+
+From the repository root:
+
+```powershell
+npm --prefix ".\e2e" run stack:integration
+```
+
+That script creates and owns a fresh runtime under
+`e2e\.runtime-integration`, boots a local PostgreSQL cluster on `55449`,
+Redis on `56379`, Django on `18080`, Celery Beat with its schedule file also
+inside the runtime directory, a separate Celery worker, and the frontend on
+`15174`. The corresponding Django settings module is
+`chameleon.settings_integration`, which is fail-closed: it requires the
+integration opt-in environment flag, rejects default shared ports, confines
+media storage to the runtime directory, and blanks provider secrets.
+
+For the full browser verification against that stack:
+
+```powershell
+$env:PLAYWRIGHT_CHANNEL = "msedge"
+npm --prefix ".\e2e" run test:integration -- --grep "creator registers"
+```
+
 ## Generation jobs and provider setup
 
 Generation requests first persist a workspace-scoped job, then submit it to the

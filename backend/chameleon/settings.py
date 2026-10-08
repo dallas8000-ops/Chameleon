@@ -103,6 +103,10 @@ else:
         raise RuntimeError("DATABASE_URL environment variable must be set in production")
     DATABASES = {"default": dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
 
+for config in DATABASES.values():
+    if config.get("ENGINE") == "django.db.backends.postgresql":
+        config.setdefault("CONN_HEALTH_CHECKS", True)
+
 CELERY_BROKER_URL = os.environ.get(
     "CELERY_BROKER_URL",
     os.environ.get("REDIS_URL", "redis://localhost:6379/0"),

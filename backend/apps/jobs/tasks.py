@@ -142,6 +142,10 @@ def submit_provider_job(job_id: int) -> None:
         polling_queue_failed(job.id)
 
 
+# Register ingestion recovery tasks through the autodiscovered jobs.tasks module.
+from apps.jobs.ingestion import recover_ingestions  # noqa: E402,F401
+
+
 def polling_queue_failed(job_id: int) -> None:
     logger.exception("Provider polling dispatch failed for job %s; durable schedule retained.", job_id)
     GenerationJob.objects.filter(pk=job_id, status__in=ACTIVE_STATES).update(

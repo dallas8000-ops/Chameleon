@@ -21,8 +21,10 @@ focuses on that missing continuity rather than another isolated generator.
 
 Status describes the local development branch, not a released or deployed app.
 Backend export, frontend auth, studio workflow and gated image-integration
-reviews are complete. A local browser end-to-end run with a real FFmpeg export now passes
-(SQLite/eager-Celery harness); PostgreSQL/Redis/worker and Railway checks remain.
+reviews are complete. Local browser end-to-end verification now passes in both
+the original SQLite/eager harness and a separate production-like harness with an
+owned PostgreSQL cluster, owned Redis, a separate Celery worker and Celery Beat.
+Railway deployment checks still remain.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
@@ -33,19 +35,20 @@ reviews are complete. A local browser end-to-end run with a real FFmpeg export n
 | React authentication and dashboard | Reviewed | Session bootstrap, expiry recovery, project creation and studio navigation |
 | Creator studio | Reviewed | Uploaded-asset picker, image/video scenes, captions, job status refresh and export screens |
 | Caption tracks | Reviewed APIs and UI | Validated segments, track creation/editing and export selection |
-| FFmpeg export assembly | Locally verified (uploaded image) | Private MP4 and subtitle downloads; real FFmpeg/FFprobe checked in the E2E run (H.264 1080x1920 + AAC); unit tests still mock subprocesses |
+| FFmpeg export assembly | Locally verified (uploaded image) | Private MP4 and subtitle downloads; real FFmpeg/FFprobe checked in the E2E run (H.264 1080x1920 + AAC) with the export executed by a separate Redis-backed Celery worker; unit tests still mock subprocesses |
 | Image generation from the studio | Implemented; activation gated | Versioned credit estimates, explicit confirmation, duplicate-submit protection; requires verified operator configuration |
 | Presenter generation | Intentionally disabled | Needs secure workspace image/audio transfer and audio ingestion |
 | Generated media to editable scenes | Implemented; activation gated | Bounded private ingestion and recovery; download origins and durable storage need operator verification |
-| Browser end-to-end verification | Passing locally | Unmocked register, login, project, upload, scene, captions and export via Playwright; isolated SQLite and eager Celery, not production infrastructure |
+| Browser end-to-end verification | Passing locally | Unmocked register, login, project, upload, scene, captions and export via Playwright; verified in both the SQLite/eager harness and an isolated PostgreSQL/Redis/worker/Beat harness |
 | Railway production deployment | Planned | Persistent private storage and worker infrastructure need deployment verification |
 
 **Latest recorded checks:** the default backend suite completed with 164 tests
-(6 skipped); the latest scoped PostgreSQL jobs/provider run passed
-90 tests, and 79 frontend tests passed. Frontend typecheck and build were clean,
-migration drift check was clean and the local browser E2E run passed.
-The full PostgreSQL suite still has documented baseline auth/rendering test
-failures. Provider calls were mocked or disabled; unit-test FFmpeg subprocesses are mocked,
+(6 skipped); the isolated PostgreSQL integration suite completed with 173 tests,
+the focused PostgreSQL export plus Celery-registration coverage completed with
+29 tests, and 79 frontend tests passed. Frontend typecheck and build were clean,
+migration drift check was clean, the helper-script tests passed, and the local
+browser E2E run passed against the isolated PostgreSQL/Redis/worker/Beat stack.
+Provider calls were mocked or disabled; unit-test FFmpeg subprocesses are mocked,
 while the E2E export used real FFmpeg. The 6 skips are all `apps.jobs.tests.test_generation_races`
 (PostgreSQL row locks; set `CHAMELEON_TEST_DATABASE_URL`); an earlier note of 3 skips predates
 three race tests added later, so 6 is the current count.
@@ -58,7 +61,7 @@ These are dependency-based phases, not promised delivery dates.
 
 | Phase | Milestone | Acceptance boundary |
 | --- | --- | --- |
-| P0 - creator foundation | Task 8 browser and runtime checks (local run done; production infrastructure unverified) | Sign up, create a project, upload media, assemble scenes, edit captions and verify export with real FFmpeg |
+| P0 - creator foundation | Browser and local production-like runtime checks complete | Sign up, create a project, upload media, assemble scenes, edit captions and verify export with real FFmpeg plus isolated PostgreSQL/Redis/worker/Beat wiring |
 | P1 - generation activation and deployment | Verify configured credit quotes, authorized provider integration and durable generated assets; add audio transfer and Railway deployment | Paid actions show a trustworthy estimate before submission; outputs persist privately; API, worker, scheduler and storage operate together |
 | P2 - creator quality and workflow depth | Script-to-video orchestration, realistic scene/body-motion controls, localization and team/agency tools | Evaluate with authorized quality, latency and cost benchmarks before making performance claims |
 

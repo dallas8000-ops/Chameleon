@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
+    "test:integration": "playwright test -c playwright.integration.config.ts",
     "test:scripts": "node --test scripts/resolve-python.test.mjs",
-    "tools": "node scripts/media-tools.mjs"
+    "tools": "node scripts/media-tools.mjs",
+    "stack:integration": "node scripts/start-integration-stack.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
@@ -15,4 +17,3 @@
     "typescript": "^5.0.0"
   }
 }
-

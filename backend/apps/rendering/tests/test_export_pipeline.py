@@ -412,7 +412,6 @@ class ExportPipelineTests(StudioFixture):
             self.assertTrue(b"".join(response.streaming_content).startswith(expected))
             self.assertEqual(response["Cache-Control"], "private, no-store")
             self.assertNotIn("workspaces", response["Content-Disposition"])
-            response.close()
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(f"/api/exports/{export.id}/video/").status_code, 404)
 

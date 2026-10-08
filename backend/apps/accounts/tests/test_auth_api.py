@@ -14,21 +14,22 @@ from apps.accounts.views import is_duplicate_email_conflict
 
 class RegistrationConflictTests(SimpleTestCase):
     class DatabaseConflict(Exception):
-        def __init__(self, pgcode: str, constraint: str) -> None:
+        def __init__(self, code: str, constraint: str, *, field: str = "pgcode") -> None:
             super().__init__("database constraint violation")
-            self.pgcode = pgcode
+            setattr(self, field, code)
             self.diag = SimpleNamespace(constraint_name=constraint)
 
     def test_postgres_only_maps_email_unique_constraint(self) -> None:
-        for constraint, expected in [
+        for field in ("pgcode", "sqlstate"):
+            for constraint, expected in [
             ("accounts_user_email_key", True),
             ("accounts_workspace_slug_key", False),
-        ]:
-            with self.subTest(constraint=constraint):
-                cause = self.DatabaseConflict("23505", constraint)
-                error = IntegrityError("database constraint violation")
-                error.__cause__ = cause
-                self.assertEqual(is_duplicate_email_conflict(error), expected)
+            ]:
+                with self.subTest(field=field, constraint=constraint):
+                    cause = self.DatabaseConflict("23505", constraint, field=field)
+                    error = IntegrityError("database constraint violation")
+                    error.__cause__ = cause
+                    self.assertEqual(is_duplicate_email_conflict(error), expected)
 
     def test_postgres_non_unique_error_is_not_mapped(self) -> None:
         cause = self.DatabaseConflict("23502", "accounts_user_email_key")

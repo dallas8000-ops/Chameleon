@@ -58,7 +58,7 @@ def build_session_payload(user) -> dict:
 
 def is_duplicate_email_conflict(error: IntegrityError) -> bool:
     cause = error.__cause__
-    if getattr(cause, "pgcode", None) == "23505":
+    if getattr(cause, "pgcode", None) == "23505" or getattr(cause, "sqlstate", None) == "23505":
         return getattr(getattr(cause, "diag", None), "constraint_name", None) == "accounts_user_email_key"
     return (
         getattr(cause, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE"
