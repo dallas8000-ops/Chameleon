@@ -56,3 +56,53 @@ export type ApiErrorBody = {
 export type CsrfTokenResponse = {
   csrfToken: string;
 };
+
+export type SceneKind = "script" | "image" | "video" | "presenter";
+
+export type Scene = {
+  id: number;
+  project_id: number;
+  order_index: number;
+  kind: SceneKind;
+  title: string;
+  script_text: string;
+  config: Record<string, unknown>;
+};
+
+export type CaptionSegment = { start: number; end: number; text: string };
+
+export type CaptionTrack = {
+  id: number;
+  project_id: number;
+  language: string;
+  segments: CaptionSegment[];
+  style: Record<string, unknown>;
+  updated_at: string;
+};
+
+export type ProjectDetail = Project & { scenes: Scene[]; captions: CaptionTrack[] };
+
+export type GenerationJob = {
+  id: number;
+  workspace_id: number;
+  project_id: number | null;
+  scene_id: number | null;
+  capability: string;
+  status: string;
+  error_code: string;
+  error_message: string;
+};
+
+export type ExportRecord = {
+  id: number;
+  project_id: number;
+  status: string;
+  format: string;
+  settings: Record<string, unknown>;
+  error_code: string;
+  error_message: string;
+  video_available: boolean;
+  subtitles_available: boolean;
+  created_at: string;
+  updated_at: string;
+};
