@@ -94,8 +94,11 @@ python manage.py migrate --noinput && python manage.py check_deployment --role a
 Railway does **not** mount volumes during pre-deploy, so the `MEDIA_ROOT` write
 test is skipped there (it would only exercise throwaway disk). The start command
 runs `check_deployment --role all` again, with the volume mounted and the write
-probe enabled, before `honcho` launches the processes. A misconfigured volume
-therefore fails the health check and the previous deployment keeps serving.
+probe enabled, then `migrate --noinput`, before `honcho` launches the processes.
+The start-time `migrate` exists because the pre-deploy step did not apply
+migrations on the first real Railway deploy; it is idempotent and safe with a
+single replica. A misconfigured volume therefore fails the health check and the
+previous deployment keeps serving.
 
 `check_deployment` fails the release on: `DEBUG` left on, a placeholder or short
 `SECRET_KEY`, empty or wildcard `ALLOWED_HOSTS`, non-https

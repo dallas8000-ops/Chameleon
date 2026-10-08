@@ -351,6 +351,13 @@ class DeploymentManifestTest(TestCase):
         self.assertNotIn('--skip-media-write-probe', start)
         self.assertLess(start.index('check_deployment'), start.index('honcho start'))
 
+    def test_start_command_migrates_before_launching_processes(self):
+        # Pre-deploy did not reliably apply migrations on Railway, so the start
+        # command migrates too; it is idempotent and safe with a single replica.
+        start = self.railway_config()['deploy']['startCommand']
+        self.assertIn('manage.py migrate --noinput', start)
+        self.assertLess(start.index('migrate --noinput'), start.index('honcho start'))
+
     def test_start_command_supervises_the_procfile(self):
         start = self.railway_config()['deploy']['startCommand']
         self.assertIn('honcho start', start)

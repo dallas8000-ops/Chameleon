@@ -5,7 +5,7 @@
   },
   "deploy": {
     "preDeployCommand": "cd backend && /opt/venv/bin/python manage.py migrate --noinput && /opt/venv/bin/python     manage.py check_deployment --role all --skip-media-write-probe",
-        "startCommand": "/opt/venv/bin/python backend/manage.py check_deployment --role all && /opt/venv/bin/honcho start -f Procfile",
+        "startCommand": "/opt/venv/bin/python backend/manage.py check_deployment --role all && /opt/venv/bin/python backend/manage.py migrate --noinput && /opt/venv/bin/honcho start -f Procfile",
     "healthcheckPath": "/api/health/",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ALWAYS",
