@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
+    "test:scripts": "node --test scripts/resolve-python.test.mjs",
     "tools": "node scripts/media-tools.mjs"
   },
   "devDependencies": {
@@ -14,3 +15,4 @@
     "typescript": "^5.0.0"
   }
 }
+

@@ -5,13 +5,14 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { resolvePython } from "./resolve-python.mjs";
+
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..");
 const backend = path.join(root, "backend");
-const runtime = path.join(here, "..", ".runtime");
-const python = process.env.E2E_PYTHON
-  ?? "C:\\Users\\Ray\\AppData\\Local\\Programs\\Python\\Python311\\python.exe";
+const runtime = path.resolve(here, "..", ".runtime");
+const python = resolvePython({ root });
 const apiPort = process.env.E2E_API_PORT ?? "18000";
 const webPort = process.env.E2E_WEB_PORT ?? "15173";
 
@@ -22,6 +23,7 @@ mkdirSync(path.join(runtime, "media"), { recursive: true });
 const env = {
   ...process.env,
   CHAMELEON_E2E: "1",
+  CHAMELEON_E2E_RUNTIME_DIR: runtime,
   DJANGO_SETTINGS_MODULE: "chameleon.settings_e2e",
   SECRET_KEY: "e2e-only-" + "x".repeat(40),
   DEBUG: "1",
@@ -37,11 +39,12 @@ const env = {
   FFPROBE_BINARY: require("ffprobe-static").path,
 };
 
-const migrate = spawnSync(python, ["manage.py", "migrate", "--noinput"], { cwd: backend, env, stdio: "inherit" });
+const migrate = spawnSync(python.command, [...python.args, "manage.py", "migrate", "--noinput"], { cwd: backend, env, stdio: "inherit" });
 if (migrate.status !== 0) process.exit(migrate.status ?? 1);
 
-const server = spawn(python, ["manage.py", "runserver", `127.0.0.1:${apiPort}`, "--noreload"], {
+const server = spawn(python.command, [...python.args, "manage.py", "runserver", `127.0.0.1:${apiPort}`, "--noreload"], {
   cwd: backend, env, stdio: "inherit",
 });
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => server.kill());
 server.on("exit", (code) => process.exit(code ?? 0));
+

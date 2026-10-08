@@ -1,11 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ffprobe: string = require("ffprobe-static").path;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ffmpeg: string = require("ffmpeg-static");
 const outDir = path.join(__dirname, "..", ".runtime", "artifacts");
 
 // Minimal valid RGB PNG, generated locally (no external downloads).
@@ -45,7 +47,7 @@ async function csrf(page: Page): Promise<string> {
   return (await response.json()).csrfToken;
 }
 
-test("creator registers, uploads, edits captions, and exports a real MP4", async ({ page }) => {
+test("creator registers, uploads, edits captions, and exports a real MP4", async ({ page, browser, baseURL }) => {
   const email = `creator-${Date.now()}-${Math.random().toString(16).slice(2, 8)}@example.com`;
   const password = "Zq7!pleasant-Harbor-42";
   const providerWrites: string[] = [];
@@ -107,28 +109,36 @@ test("creator registers, uploads, edits captions, and exports a real MP4", async
   await page.getByRole("button", { name: "Add scene", exact: true }).click();
   await expect(page.getByRole("listitem").filter({ hasText: "Opening frame (image)" })).toBeVisible();
 
-  // Captions: create the track in the UI. The studio has no add-segment control yet,
-  // so segments are seeded through the real API with the browser session and CSRF token.
+  // Reload: the scene and its asset/duration config must come from the server, not client state.
+  await page.reload();
+  await expect(page.getByRole("listitem").filter({ hasText: "Opening frame (image)" })).toBeVisible();
+  const assets = await (await page.request.get("/api/assets/?workspace_id=1")).json();
+  const assetList = (assets.results ?? assets) as { id: number; name: string }[];
+  const frame = assetList.find((item) => item.name === "frame.png")!;
+  expect(frame).toBeTruthy();
+  const persisted = await (await page.request.get(`/api/projects/${projectId}/`)).json();
+  expect(persisted.scenes).toHaveLength(1);
+  expect(persisted.scenes[0].title).toBe("Opening frame");
+  expect(persisted.scenes[0].config).toMatchObject({ asset_id: frame.id, duration_seconds: 2 });
+
+  // Captions entirely through the UI: create the track, add a segment, validate, save, reload.
   await page.getByRole("button", { name: "Create caption track" }).click();
   await expect(page.getByRole("heading", { name: /Captions \(en\)/ })).toBeVisible();
-  const captionId = await page.evaluate(async (id) => {
-    const project = await (await fetch(`/api/projects/${id}/`)).json();
-    return project.captions[0].id as number;
-  }, projectId);
-  const seeded = await page.request.patch(`/api/captions/${captionId}/`, {
-    headers: { "X-CSRFToken": await csrf(page) },
-    data: { segments: [{ start: 0, end: 1.5, text: "Hello draft" }] },
-  });
-  expect(seeded.ok()).toBeTruthy();
-  await page.reload();
-  const text = page.getByLabel("Segment 1 text");
-  await expect(text).toHaveValue("Hello draft");
-  await text.fill("Hello Chameleon");
+  await page.getByRole("button", { name: "Add segment" }).click();
+  await page.getByRole("button", { name: "Save captions" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: /Segment 1 text is required/ })).toBeVisible();
+  await page.getByLabel("Segment 1 text").fill("Hello draft");
+  await page.getByRole("button", { name: "Add segment" }).click();
+  await page.getByLabel("Segment 2 text").fill("Throwaway");
+  await page.getByRole("button", { name: "Remove segment 2" }).click();
+  await expect(page.getByLabel("Segment 2 text")).toHaveCount(0);
+  await page.getByLabel("Segment 1 end").fill("1.5");
+  await page.getByLabel("Segment 1 text").fill("Hello Chameleon");
   await page.getByRole("button", { name: "Save captions" }).click();
   await expect(page.getByText("Captions saved.")).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("Segment 1 text")).toHaveValue("Hello Chameleon");
-
+  await expect(page.getByLabel("Segment 2 text")).toHaveCount(0);
   // Export: queue, status, download.
   await page.getByRole("link", { name: "Go to export" }).click();
   await page.getByRole("button", { name: "Queue export", exact: true }).click();
@@ -154,11 +164,50 @@ test("creator registers, uploads, edits captions, and exports a real MP4", async
   ]).toString());
   const v = probe.streams.find((s: { codec_type: string }) => s.codec_type === "video");
   expect(v.codec_name).toBe("h264");
+  const a = probe.streams.find((s: { codec_type: string }) => s.codec_type === "audio");
+  expect(a?.codec_name).toBe("aac");
   expect([v.width, v.height]).toEqual([1080, 1920]);
   expect(Number(probe.format.duration)).toBeGreaterThan(1.5);
   expect(Number(probe.format.duration)).toBeLessThan(3);
   writeFileSync(path.join(outDir, "ffprobe.json"), JSON.stringify(probe, null, 2));
 
+  // Full decode of every frame/sample of the downloaded file: execFileSync throws on non-zero exit,
+  // and -v error means any decode problem is printed to stderr.
+  const decode = spawnSync(ffmpeg, ["-v", "error", "-i", file, "-f", "null", "-"], { encoding: "utf8" });
+  expect(decode.status).toBe(0);
+  expect(decode.stderr.trim()).toBe("");
+
+  // A second registered user must not reach the first user's private data.
+  const exportId = videoHref!.match(/exports\/(\d+)\//)![1];
+  const other = await browser.newContext({ baseURL });
+  const otherPage = await other.newPage();
+  await otherPage.goto("/register");
+  await otherPage.getByLabel(/email/i).fill(`other-${Date.now()}@example.com`);
+  await otherPage.getByLabel(/password/i).fill(password);
+  await otherPage.getByLabel(/workspace name/i).fill("Other Studio");
+  await otherPage.getByRole("button", { name: /create workspace/i }).click();
+  await expect(otherPage).toHaveURL(/\/app$/);
+  const forbidden = [
+    `/api/assets/${frame.id}/`,
+    `/api/projects/${projectId}/`,
+    `/api/exports/${exportId}/`,
+    videoHref!,
+    subtitleHref!,
+    "/api/assets/?workspace_id=1",
+    "/api/projects/?workspace_id=1",
+  ];
+  for (const url of forbidden) {
+    const response = await otherPage.request.get(url);
+    const body = await response.text();
+    const denied = [403, 404].includes(response.status())
+      || (response.status() === 200 && /"results":\s*\[\s*\]|^\[\s*\]$/.test(body));
+    expect(denied, `${url} -> ${response.status()}`).toBe(true);
+    expect(body).not.toMatch(/frame\.png|Launch teaser|Hello Chameleon|Opening frame/);
+  }
+  await other.close();
+
   expect(providerWrites).toEqual([]);
 });
+
+
 

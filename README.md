@@ -40,12 +40,15 @@ reviews are complete. A local browser end-to-end run with a real FFmpeg export n
 | Browser end-to-end verification | Passing locally | Unmocked register, login, project, upload, scene, captions and export via Playwright; isolated SQLite and eager Celery, not production infrastructure |
 | Railway production deployment | Planned | Persistent private storage and worker infrastructure need deployment verification |
 
-**Latest recorded checks:** the default backend suite completed with 157 tests
+**Latest recorded checks:** the default backend suite completed with 164 tests
 (6 skipped); the latest scoped PostgreSQL jobs/provider run passed
-90 tests, and 73 frontend tests passed. Frontend typecheck and build were clean,
+90 tests, and 79 frontend tests passed. Frontend typecheck and build were clean,
 migration drift check was clean and the local browser E2E run passed.
 The full PostgreSQL suite still has documented baseline auth/rendering test
-failures. Provider calls were mocked or disabled; unit-test FFmpeg subprocesses are mocked,\nwhile the E2E export used real FFmpeg.
+failures. Provider calls were mocked or disabled; unit-test FFmpeg subprocesses are mocked,
+while the E2E export used real FFmpeg. The 6 skips are all `apps.jobs.tests.test_generation_races`
+(PostgreSQL row locks; set `CHAMELEON_TEST_DATABASE_URL`); an earlier note of 3 skips predates
+three race tests added later, so 6 is the current count.
 These are recorded local results, not a live CI badge: this repository does not
 yet have a CI workflow.
 
@@ -180,7 +183,9 @@ require their own integration checks.
 The Playwright suite in `e2e/` starts its own Django API (port 18000) and Vite
 dev server (port 15173) with a scratch SQLite database and media directory under
 `e2e/.runtime/`, eager Celery and an in-process cache (`chameleon.settings_e2e`,
-refuses to load without `CHAMELEON_E2E=1`). It sets an empty provider key and
+refuses to load without `CHAMELEON_E2E=1` and enforces the scratch SQLite/media itself:
+it requires `CHAMELEON_E2E_RUNTIME_DIR` inside `e2e/.runtime` and rejects any other
+`DATABASE_URL` or `MEDIA_ROOT`). It sets an empty provider key and
 makes no paid generation calls. FFmpeg/FFprobe come from project-local npm
 packages (`ffmpeg-static`, `ffprobe-static`), so nothing global is installed.
 The scratch SQLite database, in-process cache and eager Celery do **not** prove
@@ -189,14 +194,20 @@ clip, not the future cinematic storytelling output.
 
 ```powershell
 npm --prefix ".\e2e" ci
-# Uses the Python 3.11 interpreter at C:\Users\Ray\AppData\Local\Programs\Python\Python311\python.exe;
-# override with $env:E2E_PYTHON. Use an installed browser (or run
+# Python is resolved portably: $env:E2E_PYTHON (must import Django/Celery/DRF), else
+# the repo .venv, else py -3 / python3 / python. Use an installed browser (or run
 # `npx playwright install chromium` in e2e/ once):
 $env:PLAYWRIGHT_CHANNEL = "msedge"
 npm --prefix ".\e2e" run test
 ```
 
-The exported MP4 and its `ffprobe` output are written to `e2e/.runtime/artifacts/`.
+The test registers and re-logs in (the re-login follows clearing cookies, i.e. an expired
+session; there is no logout UI yet), builds captions only through the UI (add, validate,
+remove, save), reloads to prove the scene's asset and duration persisted, then checks the
+downloaded MP4 with `ffprobe` (H.264 1080x1920 plus AAC) and a full `ffmpeg` decode, and
+confirms a second registered user gets 404/empty results for the first user's asset,
+project, export and downloads. The MP4 and `ffprobe` output are written to
+`e2e/.runtime/artifacts/`. `npm --prefix .\e2e run test:scripts` unit-tests Python resolution.
 
 ## Engineering principles
 
