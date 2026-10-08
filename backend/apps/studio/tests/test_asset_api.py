@@ -29,6 +29,7 @@ class AssetApiTests(StudioFixture):
         r = self.upload()
         self.assertEqual(r.status_code, 201, r.content)
         body = r.json()
+        self.assertEqual(body.get("source"), "upload")
         self.assertNotIn("storage_key", body)
         self.assertNotIn("url", body)
         asset = Asset.objects.get(pk=body["id"])
@@ -55,6 +56,21 @@ class AssetApiTests(StudioFixture):
             self.assertEqual(r.status_code, 400, r.content)
         self.assertEqual(Asset.objects.count(), 0)
 
+    def test_source_label_is_safe_server_provenance_only(self):
+        self.client.force_login(self.owner)
+        asset = Asset.objects.get(pk=self.upload().json()["id"])
+        for provenance, expected in (
+            ({"source": "generation", "url": "https://private/token", "requested_by": self.owner.id}, "generation"),
+            ({"source": "https://private/token"}, "unknown"),
+            ({}, "unknown"),
+        ):
+            asset.provenance = provenance
+            asset.save(update_fields=["provenance"])
+            response = self.client.get(f"/api/assets/{asset.id}/")
+            self.assertEqual(response.json().get("source"), expected)
+            self.assertNotIn("private/token", response.content.decode())
+            self.assertNotIn("provenance", response.json())
+
     def test_oversized_upload_rejected_during_parsing(self) -> None:
         self.client.force_login(self.owner)
         with override_settings(STUDIO_MAX_UPLOAD_BYTES=10):
@@ -65,10 +81,11 @@ class AssetApiTests(StudioFixture):
 
     def test_provenance_is_server_generated_and_not_serialized(self) -> None:
         self.client.force_login(self.owner)
-        r = self.upload(provenance='{"source":"forged"}')
+        r = self.upload(provenance='{"source":"forged"}', source="generation")
         self.assertEqual(r.status_code, 201, r.content)
         body = r.json()
         self.assertNotIn("provenance", body)
+        self.assertEqual(body["source"], "upload")
         asset = Asset.objects.get(pk=body["id"])
         self.assertEqual(asset.provenance["source"], "upload")
         self.assertEqual(asset.provenance["uploaded_by"], self.owner.id)

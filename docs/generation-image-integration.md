@@ -4,6 +4,32 @@ This integration creates **one image**, not a cinematic storytelling system.
 Presenter generation remains blocked. It makes no motion, character continuity,
 voice-sync, or quality-parity claim.
 
+## Bring your own private media
+
+Uploading images or videos remains a first-class independent path: upload in
+**Media assets**, select the private Asset for an image/video scene, then export.
+No provider key, active generation tariff, quote, output-origin approval or
+generation-storage confirmation is required for this workflow. Existing private
+upload/storage configuration is still required. Owner/editor can upload and
+create scenes/exports; reviewer/viewer access remains read-only.
+
+The Asset list and scene picker distinguish **Uploaded**, **Generated**, and
+**Source unknown** for legacy/unattributed Assets. Only this bounded source label
+is public; detailed provenance, uploader identity and storage keys stay private.
+Clients cannot forge source labels through upload fields.
+
+Existing upload validation is retained: nonempty bytes, MIME/signature matching,
+safe filenames, tenant ownership and a configurable 25 MiB default maximum.
+Supported upload image signatures are PNG, JPEG, GIF and WebP, not arbitrary `image/*`
+formats. Upload signature checks alone do not prove full image validity; export
+also probes/decodes media. Controlled upload-to-export tests mock FFmpeg, so they
+do not establish real binary/deployment decoding success.
+
+Uploads are **not sent to Magic Hour**. Character/environment reference images
+or image-to-video inputs are future product direction, not an implemented or
+approved provider capability. Selecting an uploaded Asset for a scene does not
+authorize its transmission to any external provider.
+
 ## Default: unavailable, no paid request
 
 The repository does not approve production generation:

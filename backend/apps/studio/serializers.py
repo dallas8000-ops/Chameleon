@@ -152,10 +152,15 @@ class ProjectDetailSerializer(ProjectSerializer):
 
 class AssetSerializer(serializers.ModelSerializer):
     workspace_id = serializers.IntegerField(read_only=True)
+    source = serializers.SerializerMethodField()
+
+    def get_source(self, obj):
+        source = obj.provenance.get("source") if isinstance(obj.provenance, dict) else None
+        return source if source in ("upload", "generation") else "unknown"
 
     class Meta:
         model = Asset
-        fields = ["id", "workspace_id", "asset_type", "name", "content_type", "size_bytes", "created_at"]
+        fields = ["id", "workspace_id", "asset_type", "source", "name", "content_type", "size_bytes", "created_at"]
         read_only_fields = fields
 
 

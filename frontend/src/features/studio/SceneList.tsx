@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
 import type { Asset, Scene, SceneKind } from "../../lib/api/types";
+import { assetSourceLabel } from "./asset-source";
 
 type SceneListProps = {
   projectId: number;
@@ -92,7 +93,7 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded 
                 <option value="">Select a private {kind}…</option>
                 {choices.map((asset) => (
                   <option key={asset.id} value={asset.id}>
-                    {asset.name}
+                    {asset.name} — {assetSourceLabel(asset)}
                   </option>
                 ))}
               </select>
@@ -122,4 +123,3 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded 
     </section>
   );
 }
-

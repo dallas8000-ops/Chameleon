@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
 import type { Asset } from "../../lib/api/types";
+import { assetSourceLabel } from "./asset-source";
 
 type AssetPanelProps = {
   workspaceId: number;
@@ -38,11 +39,13 @@ export function AssetPanel({ workspaceId, assets, canWrite, onUploaded }: AssetP
   return (
     <section aria-label="Media assets" className="mt-6">
       <h2 className="text-xl font-semibold">Media assets</h2>
+      <p>Upload your own images or videos for scenes and export. No generation setup or cost quote is needed.
+        Uploads stay private and are not sent to a generation provider.</p>
       {assets.length === 0 ? <p>No private assets yet.</p> : null}
       <ul className="list-disc pl-5">
         {assets.map((asset) => (
           <li key={asset.id}>
-            {asset.name} <span className="text-sm text-gray-600">({asset.asset_type})</span>
+            {asset.name} <span className="text-sm text-gray-600">({asset.asset_type} · {assetSourceLabel(asset)})</span>
           </li>
         ))}
       </ul>

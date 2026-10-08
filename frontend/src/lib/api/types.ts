@@ -131,6 +131,7 @@ export type Asset = {
   id: number;
   workspace_id: number;
   asset_type: "image" | "video" | (string & {});
+  source?: "upload" | "generation" | "unknown";
   name: string;
   content_type: string;
   size_bytes: number;

@@ -22,7 +22,7 @@ const project = {
   scenes: [{ id: 1, project_id: 5, order_index: 0, kind: "script", title: "Intro", script_text: "", config: {} }],
   captions: [caption],
 };
-const photo = { id: 42, workspace_id: 11, asset_type: "image", name: "Hero photo", content_type: "image/png", size_bytes: 10, created_at: "x" };
+const photo = { id: 42, workspace_id: 11, asset_type: "image", source: "upload", name: "Hero photo", content_type: "image/png", size_bytes: 10, created_at: "x" };
 const owner = { id: 1, email: "o@example.com" };
 const studio = { id: 11, name: "Studio", slug: "studio", role: "owner" };
 const csrf = {
@@ -157,6 +157,51 @@ test("uploads a private asset with multipart form data and lists it", async () =
   expect(post.body).toBeInstanceOf(FormData);
   expect((post.body as FormData).get("workspace_id")).toBe("11");
   expect(post.headers.get("Content-Type")).toBeNull();
+});
+
+test("uploaded and generated sources remain distinct in the list and image picker while generation is disabled", async () => {
+  installFetch({
+    ...baseRoutes,
+    "GET /api/assets/?workspace_id=11": json([
+      photo, { ...photo, id: 44, name: "Generated landscape", source: "generation" },
+      { ...photo, id: 45, name: "Legacy image", source: "unknown" },
+    ]),
+  });
+  const user = userEvent.setup();
+  renderAt("/app/projects/5/studio");
+  await screen.findByText("Hero photo");
+  expect(screen.getByText(/image · Uploaded/)).toBeTruthy();
+  expect(screen.getByText(/image · Generated/)).toBeTruthy();
+  expect(screen.getByText(/image · Source unknown/)).toBeTruthy();
+  await user.selectOptions(screen.getByLabelText("Scene kind"), "image");
+  expect(screen.getByRole("option", { name: "Hero photo — Uploaded" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Generated landscape — Generated" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Legacy image — Source unknown" })).toBeTruthy();
+});
+
+test("upload, image scene and export remain usable without a quote or paid generation request", async () => {
+  const { calls } = installFetch({
+    ...baseRoutes,
+    "POST /api/assets/": json({ ...photo, id: 43, name: "My image" }, 201),
+    "POST /api/projects/5/scenes/": json({ id: 2, project_id: 5, kind: "image", title: "Uploaded scene", config: { asset_id: 43 } }, 201),
+    "POST /api/projects/5/exports/": json(exportRecord, 201),
+  });
+  const user = userEvent.setup();
+  renderAt("/app/projects/5/studio");
+  expect((await screen.findByRole("button", { name: "Generate image" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.upload(screen.getByLabelText("Upload media"), new File(["fixture"], "my-image.png", { type: "image/png" }));
+  await user.click(screen.getByRole("button", { name: "Upload asset" }));
+  await screen.findByText("My image");
+  await user.type(screen.getByLabelText("Scene title"), "Uploaded scene");
+  await user.selectOptions(screen.getByLabelText("Scene kind"), "image");
+  await user.selectOptions(screen.getByLabelText("Media asset"), "43");
+  await user.click(screen.getByRole("button", { name: "Add scene" }));
+  await user.click(screen.getByRole("link", { name: "Go to export" }));
+  await user.click(await screen.findByRole("button", { name: "Queue export" }));
+  expect(await screen.findByText("Export status: queued")).toBeTruthy();
+  const scene = calls.find(call => call.method === "POST" && call.url === "/api/projects/5/scenes/")!;
+  expect(JSON.parse(String(scene.body)).config.asset_id).toBe(43);
+  expect(calls.some(call => call.method === "POST" && call.url.includes("/jobs/"))).toBe(false);
 });
 
 test("image scenes require a picked asset, omit blank duration, and send asset_id", async () => {

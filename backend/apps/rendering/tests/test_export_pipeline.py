@@ -97,6 +97,32 @@ class ExportPipelineTests(StudioFixture):
         self.assertNotIn("manifest", detail.json())
         self.assertNotIn("output_path", detail.json())
 
+    @override_settings(
+        MAGIC_HOUR_API_KEY="", GENERATION_IMAGE_TARIFF={},
+        GENERATION_DOWNLOAD_ORIGINS=[], GENERATION_STORAGE_CONFIRMED=False,
+    )
+    def test_uploaded_image_scene_exports_without_generation_activation(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        with patch("apps.providers.registry.ProviderRegistry.get") as provider:
+            response = self.client.post("/api/assets/", {
+                "workspace_id": self.workspace.id,
+                "file": SimpleUploadedFile("my-image.png", b"\x89PNG\r\n\x1a\n" + b"fixture", "image/png"),
+            })
+            self.assertEqual(response.status_code, 201, response.content)
+            asset_id = response.json()["id"]
+            listed = self.client.get(f"/api/assets/?workspace_id={self.workspace.id}").json()
+            self.assertIn(asset_id, [item["id"] for item in listed])
+            scene = self.post(f"/api/projects/{self.project.id}/scenes/", {
+                "kind": "image", "title": "My image", "config": {"asset_id": asset_id, "duration_seconds": 5},
+            })
+            self.assertEqual(scene.status_code, 201, scene.content)
+            export = self.create_export()
+            self.render(export)
+            self.assertEqual(export.status, "completed")
+            self.assertTrue(export.output_path)
+            self.assertFalse(GenerationJob.objects.exists())
+            provider.assert_not_called()
+
     def test_no_source_is_explicit_failed_export(self):
         export = self.create_export()
         self.render(export)
