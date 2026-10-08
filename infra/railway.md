@@ -1,17 +1,18 @@
 # Railway deployment runbook
 
-Status: **not yet deployed.** The manifests, release checks and same-origin
-frontend delivery in this repository have been exercised locally; no Railway
-environment has been created, so nothing here is production-verified yet.
+Status: **deployed** to the `chameleon` Railway project (2026-10-08) at
+`https://chameleon-production-a448.up.railway.app`, built from the root
+`Dockerfile`. Verified live: health, SPA delivery, migrations, worker and Beat
+sweepers, and a full register, upload, caption and export flow whose MP4 passes
+`ffprobe` and a full decode. See the checklist below for what remains open.
 
-Deployment artifacts live at the repository root so Railway picks them up
-automatically. For first-time dashboard setup, follow
-[railway-manual-setup.md](./railway-manual-setup.md).
+Deployment artifacts live at the repository root. For first-time dashboard setup,
+follow [railway-manual-setup.md](./railway-manual-setup.md).
 
 | File | Purpose |
 | --- | --- |
-| [`railway.json`](../railway.json) | Builder, release (pre-deploy) command, start command, health check, replica count |
-| [`nixpacks.toml`](../nixpacks.toml) | Build image: Python 3.11, Node 20, FFmpeg; installs backend requirements and builds the frontend bundle |
+| [`Dockerfile`](../Dockerfile) | Builds the image (Python 3.11, FFmpeg, the Vite bundle, `collectstatic`) and holds the start command, so builds and redeploys do not depend on which Railway builder is selected |
+| [`railway.json`](../railway.json) | Selects the Dockerfile builder; start command, health check, restart policy, replica count. Keep its start command identical to the Dockerfile `CMD` |
 | [`Procfile`](../Procfile) | The three processes (`web`, `worker`, `beat`) supervised by `honcho` inside the single service |
 
 ## Topology: one service, one volume
@@ -45,18 +46,18 @@ work, not a configuration change.
 
 ## Frontend delivery
 
-The frontend is **not** a separate host. `nixpacks.toml` builds `frontend/dist`
-during the image build and runs `collectstatic` into `backend/staticfiles` (the
-build phase, not pre-deploy, because pre-deploy runs in a throwaway container).
+The frontend is **not** a separate host. The `Dockerfile` builds `frontend/dist`
+in a Node stage and runs `collectstatic` into `backend/staticfiles` during the
+image build, so both are image content.
 WhiteNoise serves the hashed `/assets/*` bundles with immutable caching, and any
 non-`/api`, non-`/static`, non-`/assets` route falls back to the SPA entry
 document, which is sent with `Cache-Control: no-store`. Serving the app and
 the API from one origin keeps the session cookie and CSRF token first-party; the
 Vite dev proxy remains development-only.
 
-Node's `NODE_ENV` is deliberately left unset during the build: Vite, React and
-TypeScript are `devDependencies`, so `npm ci` would skip the entire build
-toolchain in production mode.
+The frontend stage installs with `npm ci --include=dev` and never sets
+`NODE_ENV=production`: Vite, React and TypeScript are `devDependencies`, so a
+production-mode install would skip the entire build toolchain.
 
 ## Required environment
 
@@ -83,22 +84,25 @@ plain-HTTP container probe succeeds, and that probe's `Host:
 healthcheck.railway.app` header is admitted automatically so it is never
 rejected as a disallowed host.
 
-## Release step
+## Start-time checks and migrations
 
-`railway.json` runs this before each deploy becomes active:
+There is deliberately **no** Railway pre-deploy command. Pre-deploy runs in a
+separate container without the volume, and on the first real deploy it did not
+apply migrations. Instead the start command (in `railway.json` and the
+`Dockerfile` `CMD`) runs, in order:
 
 ```
-python manage.py migrate --noinput && python manage.py check_deployment --role all --skip-media-write-probe
+check_deployment --role all  &&  migrate --noinput  &&  honcho start -f Procfile
 ```
 
-Railway does **not** mount volumes during pre-deploy, so the `MEDIA_ROOT` write
-test is skipped there (it would only exercise throwaway disk). The start command
-runs `check_deployment --role all` again, with the volume mounted and the write
-probe enabled, then `migrate --noinput`, before `honcho` launches the processes.
-The start-time `migrate` exists because the pre-deploy step did not apply
-migrations on the first real Railway deploy; it is idempotent and safe with a
-single replica. A misconfigured volume therefore fails the health check and the
-previous deployment keeps serving.
+so the configuration is verified with the volume mounted and the write probe
+enabled, the schema is migrated, and only then do gunicorn, the worker and Beat
+launch. `migrate` is idempotent and safe with a single replica. A bad
+configuration or failed migration fails the health check and the previous
+deployment keeps serving.
+
+`check_deployment --skip-media-write-probe` still exists for environments where
+the volume is not mounted.
 
 `check_deployment` fails the release on: `DEBUG` left on, a placeholder or short
 `SECRET_KEY`, empty or wildcard `ALLOWED_HOSTS`, non-https
@@ -117,22 +121,27 @@ Run it against any environment with:
 
 ## Pre-launch verification checklist
 
-Nothing below has been performed yet.
+Done on 2026-10-08 against the live service:
 
-1. Create the service, attach PostgreSQL and Redis, and mount a volume at `/data`.
-2. Deploy; confirm the release step ran migrations and that `check_deployment`
-   passed (it fails the deploy otherwise).
-3. Run the Django suite against a **disposable** PostgreSQL database
+- [x] Service, PostgreSQL, Redis and the `/data` volume created; deploy healthy.
+- [x] `check_deployment` and `migrate` pass at start.
+- [x] `GET /api/health/` is 200, the root URL serves the SPA, and register,
+  login and session reload work in a real browser.
+- [x] Image upload, scene, captions and export complete; the downloaded MP4 is
+  h264/aac 1080x1920 and decodes without errors; a second user is denied the
+  first user's project, export and downloads.
+- [x] The worker and Beat sweepers run without errors.
+
+Still open:
+
+1. Redeploy from the new `Dockerfile` and confirm uploads and exports survive
+   (volume persistence). Record the result here.
+2. Run the Django suite against a **disposable** PostgreSQL database
    (`CHAMELEON_TEST_DATABASE_URL`); the 6 generation-race skips only apply to
    SQLite.
-4. `GET https://<host>/api/health/` returns 200; the root URL returns the studio
-   SPA; register/login sets `Secure` cookies.
-5. Upload an image and queue an export; confirm the **worker** process log shows
-   the task and the download returns an MP4 that `ffprobe` validates.
-6. Redeploy and confirm uploads and exports survive (volume persistence).
-7. Confirm exactly one beat process is running and that killing the worker
+3. Confirm exactly one beat process is running and that killing the worker
    mid-export is recovered by the sweeper.
-8. Only then follow the
+4. Only then follow the
    [generation runbook](../docs/generation-image-integration.md) for quotes,
    tariffs, download origins and storage confirmation before setting
    `MAGIC_HOUR_API_KEY`.

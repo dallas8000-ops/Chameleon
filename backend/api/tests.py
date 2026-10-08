@@ -1,7 +1,6 @@
 import contextlib
 import json
 import tempfile
-import tomllib
 from io import StringIO
 from pathlib import Path
 
@@ -320,6 +319,9 @@ class DeploymentManifestTest(TestCase):
     def railway_config(self) -> dict:
         return json.loads(Path(self.repo_root, 'railway.json').read_text(encoding='utf-8'))
 
+    def dockerfile(self) -> str:
+        return Path(self.repo_root, 'Dockerfile').read_text(encoding='utf-8')
+
     def procfile_commands(self) -> dict:
         commands = {}
         for line in Path(self.repo_root, 'Procfile').read_text(encoding='utf-8').splitlines():
@@ -334,17 +336,6 @@ class DeploymentManifestTest(TestCase):
         path = self.railway_config()['deploy']['healthcheckPath']
         self.assertEqual(resolve(path).url_name, 'health')
 
-    def test_release_step_migrates_and_verifies_configuration(self):
-        pre_deploy = self.railway_config()['deploy']['preDeployCommand']
-        self.assertIn('manage.py migrate --noinput', pre_deploy)
-        self.assertIn('manage.py check_deployment', pre_deploy)
-
-    def test_release_step_does_not_probe_the_unmounted_volume(self):
-        # Railway does not mount volumes during pre-deploy, so a write probe there
-        # would test throwaway disk and could pass with the volume misconfigured.
-        pre_deploy = self.railway_config()['deploy']['preDeployCommand']
-        self.assertIn('--skip-media-write-probe', pre_deploy)
-
     def test_start_command_probes_the_mounted_volume_before_serving(self):
         start = self.railway_config()['deploy']['startCommand']
         self.assertIn('manage.py check_deployment --role all', start)
@@ -352,11 +343,19 @@ class DeploymentManifestTest(TestCase):
         self.assertLess(start.index('check_deployment'), start.index('honcho start'))
 
     def test_start_command_migrates_before_launching_processes(self):
-        # Pre-deploy did not reliably apply migrations on Railway, so the start
-        # command migrates too; it is idempotent and safe with a single replica.
+        # Railway runs no separate release step here: pre-deploy has no volume and
+        # did not apply migrations, so the start command migrates. It is idempotent
+        # and safe with a single replica.
         start = self.railway_config()['deploy']['startCommand']
         self.assertIn('manage.py migrate --noinput', start)
         self.assertLess(start.index('migrate --noinput'), start.index('honcho start'))
+        self.assertNotIn('preDeployCommand', self.railway_config()['deploy'])
+
+    def test_dockerfile_cmd_matches_the_railway_start_command(self):
+        # Railway may build or redeploy without reading railway.json, so the image
+        # must start the same way on its own.
+        start = self.railway_config()['deploy']['startCommand']
+        self.assertIn(start, self.dockerfile())
 
     def test_start_command_supervises_the_procfile(self):
         start = self.railway_config()['deploy']['startCommand']
@@ -376,18 +375,28 @@ class DeploymentManifestTest(TestCase):
     def test_beat_schedule_is_written_outside_the_rebuilt_application_directory(self):
         self.assertIn('/data/celerybeat-schedule', self.procfile_commands()['beat'])
 
-    def test_build_installs_ffmpeg_and_the_frontend_bundle(self):
-        config = tomllib.loads(Path(self.repo_root, 'nixpacks.toml').read_text(encoding='utf-8'))
-        self.assertIn('ffmpeg', config['phases']['setup']['nixPkgs'])
-        install = ' '.join(config['phases']['install']['cmds'])
-        self.assertIn('backend/requirements.txt', install)
-        self.assertIn('npm --prefix frontend ci', install)
-        build = ' '.join(config['phases']['build']['cmds'])
-        self.assertIn('npm --prefix frontend run build', build)
-        self.assertIn('collectstatic --noinput', build)
+    def test_build_uses_the_root_dockerfile(self):
+        build = self.railway_config()['build']
+        self.assertEqual(build['builder'], 'DOCKERFILE')
+        self.assertTrue(Path(self.repo_root, build['dockerfilePath']).is_file())
+
+    def test_image_installs_ffmpeg_and_the_frontend_bundle(self):
+        dockerfile = self.dockerfile()
+        self.assertIn('ffmpeg', dockerfile)
+        self.assertIn('backend/requirements.txt', dockerfile)
+        self.assertIn('npm run build', dockerfile)
+        self.assertIn('collectstatic --noinput', dockerfile)
+        self.assertIn('COPY --from=frontend /app/frontend/dist frontend/dist', dockerfile)
         # Vite, React and TypeScript are devDependencies, so the build toolchain
         # disappears if npm installs in production mode.
-        self.assertNotIn('NODE_ENV', config.get('variables', {}))
+        self.assertIn('npm ci --include=dev', dockerfile)
+        self.assertNotIn('NODE_ENV', dockerfile)
+
+    def test_image_ships_the_files_the_start_command_reads(self):
+        dockerfile = self.dockerfile()
+        self.assertIn('COPY Procfile', dockerfile)
+        self.assertIn('/opt/venv', dockerfile)
+        self.assertFalse(Path(self.repo_root, 'nixpacks.toml').exists())
 
     def test_processes_are_restarted_even_when_a_child_exits_cleanly(self):
         self.assertEqual(self.railway_config()['deploy']['restartPolicyType'], 'ALWAYS')

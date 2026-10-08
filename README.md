@@ -43,7 +43,7 @@ environment has been created, so the deployment itself is still unverified.
 | Generated media to editable scenes | Implemented; activation gated | Bounded private ingestion and recovery; download origins and durable storage need operator verification |
 | Browser end-to-end verification | Passing locally | Unmocked register, login, project, upload, scene, captions and export via Playwright; verified in both the SQLite/eager harness and an isolated PostgreSQL/Redis/worker/Beat harness |
 | Same-origin frontend delivery | Locally verified | Django/WhiteNoise serves the built Vite bundle: hashed `/assets/*` cached immutably, client routes fall back to an uncached entry document, `/api` unaffected |
-| Railway deployment manifests | Committed; not deployed | `railway.json`, `nixpacks.toml` and `Procfile` describe one service running gunicorn, the Celery worker and Beat under `honcho` with a single `/data` volume; release step runs migrations plus `check_deployment` |
+| Railway deployment manifests | Deployed and verified live (2026-10-08) | `Dockerfile`, `railway.json` and `Procfile` describe one service running gunicorn, the Celery worker and Beat under `honcho` with a single `/data` volume; the start command runs `check_deployment` and `migrate` before launching |
 | Railway production deployment | Planned | No environment created yet; volume persistence, worker execution and storage still need deployment verification |
 
 The existing provider-backed generation code reflects a prior direction, not
