@@ -240,6 +240,10 @@ What I am **not** overstating:
 - Provider-backed image/presenter code remains inactive and unchanged; it is
   prior direction awaiting the separately decided Chameleon-owned inference
   architecture.
+- The existing [creator-flow E2E](../e2e/tests/creator-flow.spec.ts) still
+  asserts that commercial generation controls are present but gated. That
+  assertion was deliberately left unchanged here; the separate removal work
+  must update the E2E expectation alongside the capability removal.
 - The synthetic overdue-export recovery probe provided dispatch evidence, not a
   completed render artifact, so hosted scheduler-recovery behavior should still
   be re-checked in deployment.
