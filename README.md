@@ -52,8 +52,9 @@ Script-only speech generation is not claimed.
 
 ### In progress
 
-- FFmpeg-backed export assembly is being developed. Its local changes are not
-  yet reviewed or complete; do not treat exports as a released feature.
+- FFmpeg-backed export assembly is implemented in the development branch and
+  is awaiting task review. It has mocked subprocess tests, but FFmpeg is not
+  installed on the current host, so no real render has been verified.
 
 ### Not yet implemented
 
@@ -123,7 +124,7 @@ do not demonstrate live provider output or production service readiness.
 ## Project status
 
 The repository is on the `feature/creator-foundation` development branch.
-Backend tests and checks have been run during implementation, but the current
-uncommitted export work still needs to pass its review and verification.
-There has been no claim of production readiness, completed UI, verified
-presenter generation, or measured superiority over other products.
+Backend tests and checks have been run during implementation; export review
+and browser-facing work are still outstanding. There has been no claim of
+production readiness, completed UI, verified presenter generation, or measured
+superiority over other products.
