@@ -50,6 +50,11 @@ particular, the presenter flow is intentionally unavailable until Chameleon
 can securely transfer workspace-owned image and audio assets to the provider.
 Script-only speech generation is not claimed.
 
+### Implemented frontend
+
+- Dashboard project creation and studio links, private asset upload/picker, scene editing (image/video scenes require an uploaded asset; blank duration defaults to 5s), caption track creation/editing, job status polling, and export with caption track selection. Viewer role is read-only.
+- Generated provider media is temporary and is not saved as a workspace asset yet, so it cannot be used in exports.
+
 ### In progress
 
 - FFmpeg-backed export assembly is implemented in the development branch and
@@ -58,7 +63,7 @@ Script-only speech generation is not claimed.
 
 ### Not yet implemented
 
-- The React creator dashboard and studio screens.
+- Studio image generation submit (needs a backend credit quote API; the UI keeps it disabled) and presenter generation (backend capability unavailable).
 - End-to-end browser sign-up, project editing, and export flows.
 - Secure asset transfer and durable storage for generated provider results.
 - Verified production deployment and live provider quality/performance
@@ -128,3 +133,4 @@ Backend tests and checks have been run during implementation; export review
 and browser-facing work are still outstanding. There has been no claim of
 production readiness, completed UI, verified presenter generation, or measured
 superiority over other products.
+

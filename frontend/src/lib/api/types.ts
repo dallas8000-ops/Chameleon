@@ -89,6 +89,8 @@ export type GenerationJob = {
   scene_id: number | null;
   capability: string;
   status: string;
+  result?: Record<string, unknown>;
+  quoted_credits?: number;
   error_code: string;
   error_message: string;
 };
@@ -106,3 +108,16 @@ export type ExportRecord = {
   created_at: string;
   updated_at: string;
 };
+
+export type Asset = {
+  id: number;
+  workspace_id: number;
+  asset_type: "image" | "video" | (string & {});
+  name: string;
+  content_type: string;
+  size_bytes: number;
+  created_at: string;
+};
+
+export type ProjectFormat = "9:16" | "16:9";
+

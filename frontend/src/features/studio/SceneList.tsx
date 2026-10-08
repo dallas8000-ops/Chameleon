@@ -2,18 +2,19 @@ import React, { useState } from "react";
 
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
-import type { Scene, SceneKind } from "../../lib/api/types";
+import type { Asset, Scene, SceneKind } from "../../lib/api/types";
 
 type SceneListProps = {
   projectId: number;
   scenes: Scene[];
+  assets: Asset[];
   canWrite?: boolean;
   onAdded: (scene: Scene) => void;
 };
 
-const KINDS: SceneKind[] = ["script", "image", "video", "presenter"];
+const KINDS: SceneKind[] = ["script", "image", "video"];
 
-export function SceneList({ projectId, scenes, canWrite = true, onAdded }: SceneListProps) {
+export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded }: SceneListProps) {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<SceneKind>("script");
   const [script, setScript] = useState("");
@@ -22,15 +23,18 @@ export function SceneList({ projectId, scenes, canWrite = true, onAdded }: Scene
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
+  const needsAsset = kind === "image" || kind === "video";
+  const choices = assets.filter((asset) => asset.asset_type === kind);
+
   async function add(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     const config: Record<string, unknown> = {};
-    if (kind === "image") {
-      if (assetId.trim() !== "") {
-        config.asset_id = Number(assetId);
-      }
+    if (needsAsset) {
+      config.asset_id = Number(assetId);
+    }
+    if (kind === "image" && duration.trim() !== "") {
       config.duration_seconds = Number(duration);
     }
     try {
@@ -42,6 +46,7 @@ export function SceneList({ projectId, scenes, canWrite = true, onAdded }: Scene
       setTitle("");
       setScript("");
       setAssetId("");
+      setDuration("5");
     } catch (caught) {
       setError(caught);
     } finally {
@@ -68,7 +73,7 @@ export function SceneList({ projectId, scenes, canWrite = true, onAdded }: Scene
           </label>
           <label className="block">
             Scene kind
-            <select className="block border p-1" value={kind} onChange={(e) => setKind(e.target.value as SceneKind)}>
+            <select className="block border p-1" value={kind} onChange={(e) => { setKind(e.target.value as SceneKind); setAssetId(""); }}>
               {KINDS.map((value) => (
                 <option key={value} value={value}>
                   {value}
@@ -80,26 +85,33 @@ export function SceneList({ projectId, scenes, canWrite = true, onAdded }: Scene
             Script
             <textarea className="block w-full border p-1" value={script} onChange={(e) => setScript(e.target.value)} />
           </label>
-          {kind === "image" && (
-            <>
-              <label className="block">
-                Private asset ID
-                <input className="block border p-1" inputMode="numeric" value={assetId} onChange={(e) => setAssetId(e.target.value)} />
-              </label>
-              <label className="block">
-                Duration (seconds, 1-120)
-                <input
-                  className="block border p-1"
-                  type="number"
-                  min={1}
-                  max={120}
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                />
-              </label>
-            </>
+          {needsAsset && (
+            <label className="block">
+              Media asset
+              <select className="block border p-1" value={assetId} onChange={(e) => setAssetId(e.target.value)}>
+                <option value="">Select a private {kind}…</option>
+                {choices.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
-          <button type="submit" disabled={busy || title.trim() === ""}>
+          {kind === "image" && (
+            <label className="block">
+              Duration (seconds, 1-120; blank uses 5)
+              <input
+                className="block border p-1"
+                type="number"
+                min={1}
+                max={120}
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+              />
+            </label>
+          )}
+          <button type="submit" disabled={busy || title.trim() === "" || (needsAsset && assetId === "")}>
             Add scene
           </button>
         </form>
@@ -110,3 +122,4 @@ export function SceneList({ projectId, scenes, canWrite = true, onAdded }: Scene
     </section>
   );
 }
+

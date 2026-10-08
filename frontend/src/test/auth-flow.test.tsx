@@ -327,6 +327,51 @@ describe("expired session recovery", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Authentication credentials were not provided.");
   });
 });
+describe("dashboard project creation and navigation", () => {
+  const session = { "GET /api/auth/session/": json({ authenticated: true, user: owner, workspaces: [creatorStudio] }), "GET /api/workspaces/": json([creatorStudio]) };
+
+  test("project titles link to their studio", async () => {
+    installFetch({ ...session, "GET /api/projects/?workspace_id=11": json(projects) });
+    renderApp("/app");
+    const link = await screen.findByRole("link", { name: "Launch teaser" });
+    expect(link.getAttribute("href")).toBe("/app/projects/1/studio");
+  });
+
+  test("creates a project via the API and opens its studio", async () => {
+    const created = { ...projects[0], id: 9, title: "Fresh cut", format: "16:9" };
+    const { calls } = installFetch({
+      ...session,
+      "GET /api/auth/csrf/": json({ csrfToken: "t" }),
+      "GET /api/projects/?workspace_id=11": json([]),
+      "POST /api/projects/": json(created, 201),
+      "GET /api/projects/9/": json({ ...created, scenes: [], captions: [] }),
+      "GET /api/assets/?workspace_id=11": json([]),
+    });
+    const user = userEvent.setup();
+    renderApp("/app");
+
+    await user.type(await screen.findByLabelText("Project title"), "Fresh cut");
+    await user.selectOptions(screen.getByLabelText("Format"), "16:9");
+    await user.click(screen.getByRole("button", { name: /create project/i }));
+
+    expect(await screen.findByRole("heading", { name: /studio: fresh cut/i })).toBeTruthy();
+    const post = calls.find((call) => call.method === "POST" && call.url === "/api/projects/")!;
+    expect(JSON.parse(String(post.body))).toEqual({ workspace_id: 11, title: "Fresh cut", format: "16:9" });
+  });
+
+  test("viewers cannot create projects", async () => {
+    const viewerStudio = { ...creatorStudio, role: "viewer" };
+    installFetch({
+      "GET /api/auth/session/": json({ authenticated: true, user: owner, workspaces: [viewerStudio] }),
+      "GET /api/workspaces/": json([viewerStudio]),
+      "GET /api/projects/?workspace_id=11": json(projects),
+    });
+    renderApp("/app");
+    await screen.findByRole("link", { name: "Launch teaser" });
+    expect(screen.queryByRole("button", { name: /create project/i })).toBeNull();
+  });
+});
+
 describe("home", () => {
   test("keeps the root home route with entry links", () => {
     renderApp("/");
@@ -335,3 +380,4 @@ describe("home", () => {
     expect(screen.getByRole("link", { name: /sign in/i }).getAttribute("href")).toBe("/login");
   });
 });
+

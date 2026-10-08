@@ -1,12 +1,15 @@
 import React, { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
 import type { ExportRecord } from "../../lib/api/types";
+import { useProjectDetail } from "../studio/use-project-detail";
 
 export function ExportPage() {
   const { id } = useParams();
+  const { sessionStatus, state, canWrite, retry } = useProjectDetail(id);
+  const [trackId, setTrackId] = useState("");
   const [burn, setBurn] = useState(true);
   const [record, setRecord] = useState<ExportRecord | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -24,6 +27,19 @@ export function ExportPage() {
     }
   }
 
+  if (sessionStatus === "anonymous") {
+    return <Navigate to="/login" replace />;
+  }
+  if (state.status !== "ready") {
+    return (
+      <main className="mx-auto max-w-3xl p-6">
+        {state.status === "error" ? <ErrorAlert error={state.error} onRetry={retry} /> : <p role="status">Loading export…</p>}
+      </main>
+    );
+  }
+  const captions = state.project.captions;
+  const needsTrack = captions.length > 1;
+
   return (
     <main className="mx-auto max-w-3xl p-6">
       <h1 className="text-3xl font-semibold">Export</h1>
@@ -31,12 +47,26 @@ export function ExportPage() {
       <label className="mt-4 block">
         <input type="checkbox" checked={burn} onChange={(event) => setBurn(event.target.checked)} /> Burn in captions
       </label>
+      {needsTrack && (
+        <label className="mt-2 block">
+          Caption track
+          <select className="block border p-1" value={trackId} onChange={(event) => setTrackId(event.target.value)}>
+            <option value="">Select a caption track…</option>
+            {captions.map((track) => (
+              <option key={track.id} value={track.id}>
+                {track.language}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {!canWrite && <p className="text-sm text-gray-600">You have read-only access; exports cannot be queued.</p>}
       <button
-        disabled={busy}
+        disabled={busy || !canWrite || (needsTrack && trackId === "")}
         onClick={() =>
           void run(`/projects/${encodeURIComponent(id ?? "")}/exports/`, {
             method: "POST",
-            body: JSON.stringify({ burn_captions: burn }),
+            body: JSON.stringify({ burn_captions: burn, ...(needsTrack ? { caption_track_id: Number(trackId) } : {}) }),
           })
         }
       >
@@ -57,3 +87,4 @@ export function ExportPage() {
     </main>
   );
 }
+
