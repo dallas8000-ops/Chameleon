@@ -36,11 +36,16 @@ Railway deployment checks still remain.
 | Creator studio | Reviewed | Uploaded-asset picker, image/video scenes, captions, job status refresh and export screens |
 | Caption tracks | Reviewed APIs and UI | Validated segments, track creation/editing and export selection |
 | FFmpeg export assembly | Locally verified (uploaded image) | Private MP4 and subtitle downloads; real FFmpeg/FFprobe checked in the E2E run (H.264 1080x1920 + AAC) with the export executed by a separate Redis-backed Celery worker; unit tests still mock subprocesses |
-| Image generation from the studio | Implemented; activation gated | Versioned credit estimates, explicit confirmation, duplicate-submit protection; requires verified operator configuration |
-| Presenter generation | Intentionally disabled | Needs secure workspace image/audio transfer and audio ingestion |
+| Provider-backed image generation (prior direction) | Present but inactive | Existing code is retained unchanged; it was not exercised by the provider-independent local infrastructure verification |
+| Presenter generation (prior direction) | Disabled | Existing path remains unchanged pending a separate inference-architecture decision |
 | Generated media to editable scenes | Implemented; activation gated | Bounded private ingestion and recovery; download origins and durable storage need operator verification |
 | Browser end-to-end verification | Passing locally | Unmocked register, login, project, upload, scene, captions and export via Playwright; verified in both the SQLite/eager harness and an isolated PostgreSQL/Redis/worker/Beat harness |
 | Railway production deployment | Planned | Persistent private storage and worker infrastructure need deployment verification |
+
+The existing provider-backed generation code reflects a prior direction, not
+the target architecture. Chameleon-owned inference is intended; its design is
+being decided separately. The local production-like smoke uses uploaded media
+only and makes no inference-service calls.
 
 **Latest recorded checks:** the default backend suite completed with 164 tests
 (6 skipped); the isolated PostgreSQL integration suite completed with 173 tests,
@@ -62,7 +67,7 @@ These are dependency-based phases, not promised delivery dates.
 | Phase | Milestone | Acceptance boundary |
 | --- | --- | --- |
 | P0 - creator foundation | Browser and local production-like runtime checks complete | Sign up, create a project, upload media, assemble scenes, edit captions and verify export with real FFmpeg plus isolated PostgreSQL/Redis/worker/Beat wiring |
-| P1 - generation activation and deployment | Verify configured credit quotes, authorized provider integration and durable generated assets; add audio transfer and Railway deployment | Paid actions show a trustworthy estimate before submission; outputs persist privately; API, worker, scheduler and storage operate together |
+| P1 - Chameleon-owned inference and deployment | Separately decide the self-hosted inference architecture, then define its acceptance checks alongside Railway deployment | Chameleon-owned inference fits the product's requirements; outputs persist privately and operate with the API, worker and storage |
 | P2 - creator quality and workflow depth | Script-to-video orchestration, realistic scene/body-motion controls, localization and team/agency tools | Evaluate with authorized quality, latency and cost benchmarks before making performance claims |
 
 Detailed scope and acceptance boundaries:

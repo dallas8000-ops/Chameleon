@@ -22,9 +22,25 @@ Constraints respected during this run:
 - existing PostgreSQL on `127.0.0.1:5432` was left untouched
 - existing Redis on `127.0.0.1:6379` (PID 6584) was left untouched
 - no deployment, no push, and no paid provider calls
-- provider activation remained disabled
+- no provider credentials were requested or configured; the integration
+  settings forced provider secrets blank
 - media, database files, Redis files, logs, and Beat schedule were confined to
   the project-owned integration runtime
+
+## Inference architecture status
+
+The provider-backed generation code already present in the repository reflects
+a prior architectural direction. It remains unchanged and inactive; it was not
+endorsed, configured, or exercised by this verification. Chameleon-owned
+self-hosted inference is the intended direction, but its architecture is
+reserved for a separate decision. This report does not propose a commercial
+provider setup or prescribe a replacement design.
+
+The verified browser path is provider-independent: it registers a user, creates
+a project, uploads local media, edits scenes and captions, and exports that
+uploaded media. It does not call image/presenter generation endpoints or any
+external inference service. Periodic provider-poll recovery tasks ran against
+an empty provider-job set; that is not evidence of inference execution.
 
 ## Harness added
 
@@ -221,8 +237,9 @@ What I am **not** overstating:
 ## Remaining limitations
 
 - Railway deployment and persistent hosted storage are still unverified.
-- Provider-paid image/presenter generation remains intentionally gated off in
-  this follow-up.
+- Provider-backed image/presenter code remains inactive and unchanged; it is
+  prior direction awaiting the separately decided Chameleon-owned inference
+  architecture.
 - The synthetic overdue-export recovery probe provided dispatch evidence, not a
   completed render artifact, so hosted scheduler-recovery behavior should still
   be re-checked in deployment.
