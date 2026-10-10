@@ -16,9 +16,10 @@ RUN npm run build
 FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
-# FFmpeg provides ffmpeg and ffprobe for export assembly.
+# FFmpeg provides ffmpeg and ffprobe for export assembly. Text overlays are drawn
+# with libass, which needs fontconfig and at least one font.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt

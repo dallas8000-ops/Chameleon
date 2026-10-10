@@ -23,7 +23,18 @@ SIGNATURES = [
     (b"GIF8", 0, "image/gif", "gif", Asset.AssetType.IMAGE),
     (b"\x1a\x45\xdf\xa3", 0, "video/webm", "webm", Asset.AssetType.VIDEO),
     (b"ftyp", 4, "video/mp4", "mp4", Asset.AssetType.VIDEO),
+    (b"ID3", 0, "audio/mpeg", "mp3", Asset.AssetType.AUDIO),
+    (b"\xff\xfb", 0, "audio/mpeg", "mp3", Asset.AssetType.AUDIO),
+    (b"\xff\xf3", 0, "audio/mpeg", "mp3", Asset.AssetType.AUDIO),
+    (b"\xff\xf2", 0, "audio/mpeg", "mp3", Asset.AssetType.AUDIO),
 ]
+
+# Browsers and tools label the same audio formats differently.
+CONTENT_TYPE_ALIASES = {
+    "audio/mpeg": {"audio/mp3"},
+    "audio/wav": {"audio/x-wav", "audio/wave", "audio/vnd.wave"},
+    "audio/mp4": {"audio/x-m4a", "audio/m4a"},
+}
 
 
 class AssetRejected(Exception):
@@ -150,11 +161,15 @@ class AssetService:
 
     @staticmethod
     def sniff(head: bytes):
+        if head[4:8] == b"ftyp" and head[8:12] in (b"M4A ", b"M4B "):
+            return "audio/mp4", "m4a", Asset.AssetType.AUDIO
         for magic, offset, content_type, ext, asset_type in SIGNATURES:
             if head[offset : offset + len(magic)] == magic:
                 return content_type, ext, asset_type
         if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
             return "image/webp", "webp", Asset.AssetType.IMAGE
+        if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+            return "audio/wav", "wav", Asset.AssetType.AUDIO
         return None
 
     @staticmethod
@@ -174,7 +189,7 @@ class AssetService:
             raise AssetRejected("Unsupported or unrecognised file type.")
         content_type, ext, asset_type = sniffed
         declared = (getattr(uploaded, "content_type", "") or "").split(";")[0].strip().lower()
-        if declared != content_type:
+        if declared != content_type and declared not in CONTENT_TYPE_ALIASES.get(content_type, set()):
             raise AssetRejected("Declared content type does not match file content.")
         original = cls.safe_name(uploaded.name)
         storage_key = f"workspaces/{workspace_id}/assets/{uuid.uuid4().hex}.{ext}"

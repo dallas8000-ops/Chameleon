@@ -27,11 +27,11 @@ Delivered as three PRs, in this order:
 2. **Script import** (built, awaiting review)
    - [x] Paste a series script, preview episodes and scenes, then create one project per episode (or the whole season). Deterministic parser, no AI. Dialogue speakers map to characters. Warn above the 20-scene export limit.
    - [x] Also reads the character bible and "Character reference:" blocks to create characters with face prompt, outfit, role and negative prompts. Existing characters are never overwritten.
-3. **Export features**
-   - [ ] Trim video clips and set image durations.
-   - [ ] Timed text overlays (hook, end card) drawn through the subtitle path, with a bundled open-licence font.
-   - [ ] Audio assets and a voice track per scene, mixed with the clip's own sound.
-   - [ ] AI-generated-people project setting, export checklist and copy-ready bio text.
+3. **Export features** (built, awaiting review)
+   - [x] Trim video clips and set image durations (images can also match a voice track's length).
+   - [x] Timed text overlays (hook, end card) drawn through libass, with DejaVu Sans installed in the Docker image. Text is stripped of override codes and never placed in the FFmpeg command line.
+   - [x] Audio assets (WAV, MP3, M4A) and a voice track per scene, delayed and mixed with the clip's own sound.
+   - [x] AI-generated-people project setting, export checklist, copy-ready bio text, and an optional small burned-in label.
 
 Acceptance test: the 9-shot Episode 1 list built in the UI with stand-in clips and exported. Checks: 1080x1920 H.264 + AAC, total length equals the sum of trimmed shots, hook text and end card visible in pulled frames, a voice track audible over shot 6, and a second user cannot read any of it. Each PR is also walked through live in the browser before merging.
 
