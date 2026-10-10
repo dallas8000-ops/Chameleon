@@ -28,8 +28,17 @@ from apps.studio.serializers import (
     ProjectSerializer,
     SceneSerializer,
     SceneWriteSerializer,
+    ScriptImportSerializer,
 )
-from apps.studio.services import AssetRejected, AssetService, CharacterService, ProjectService, SceneService
+from apps.studio.script_import import ScriptImportError
+from apps.studio.services import (
+    AssetRejected,
+    AssetService,
+    CharacterService,
+    ProjectService,
+    SceneService,
+    ScriptImportService,
+)
 from apps.studio.upload_handlers import StudioUploadSizeLimitHandler
 
 logger = logging.getLogger(__name__)
@@ -138,6 +147,30 @@ class ExportDownloadView(StudioView):
         )
         response["Cache-Control"] = "private, no-store"
         return response
+
+
+class ScriptImportView(StudioView):
+    def post(self, request):
+        serializer = ScriptImportSerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid(serializer)
+        data = serializer.validated_data
+        if ProjectService.role_in_workspace(request.user, data["workspace_id"]) is None:
+            return not_found()
+        if not ProjectService.can_write(request.user, data["workspace_id"]):
+            return read_only()
+        try:
+            if data["dry_run"]:
+                result = ScriptImportService.preview(data["workspace_id"], data["script"])
+                return Response(result)
+            result = ScriptImportService.create(
+                data["workspace_id"], data["script"], data["format"], data.get("episodes"), data["create_characters"],
+            )
+        except ScriptImportError as exc:
+            return error_response(
+                code="validation_error", message="Invalid request.", errors={"script": [str(exc)]}, status_code=400,
+            )
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 class ProjectListCreateView(StudioView):

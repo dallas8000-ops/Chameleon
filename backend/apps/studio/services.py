@@ -12,6 +12,7 @@ from django.db.models import Max
 
 from apps.accounts.models import WorkspaceMembership
 from apps.studio.models import Asset, CaptionTrack, Character, Project, Scene
+from apps.studio.script_import import EXPORT_SCENE_LIMIT, ScriptImportError, match_character, parse_script
 
 WRITE_ROLES = {WorkspaceMembership.Role.OWNER, WorkspaceMembership.Role.EDITOR}
 
@@ -192,3 +193,98 @@ class AssetService:
         except Exception:
             default_storage.delete(saved_key)
             raise
+
+
+class ScriptImportService:
+    @staticmethod
+    def _plan(workspace_id: int, script: str):
+        episodes, characters = parse_script(script)
+        existing = {c.name.lower(): c for c in Character.objects.filter(workspace_id=workspace_id)}
+        names = list({*(c.name for c in characters), *(c.name for c in existing.values())})
+        return episodes, characters, existing, names
+
+    @classmethod
+    def preview(cls, workspace_id: int, script: str) -> dict:
+        episodes, characters, existing, names = cls._plan(workspace_id, script)
+        warnings: list[str] = []
+        episode_data = []
+        for episode in episodes:
+            scenes, unmatched = [], set()
+            for scene in episode.scenes:
+                matched = match_character(scene.speaker, names) if scene.speaker else None
+                if scene.speaker and matched is None:
+                    unmatched.add(scene.speaker)
+                scenes.append({
+                    "title": scene.title, "role": scene.role, "speaker": scene.speaker,
+                    "character": matched, "text": scene.text,
+                })
+            over = len(episode.scenes) > EXPORT_SCENE_LIMIT
+            if over:
+                warnings.append(
+                    f"Episode {episode.number} has {len(episode.scenes)} scenes; export supports at most {EXPORT_SCENE_LIMIT}."
+                )
+            if unmatched:
+                warnings.append(f"Episode {episode.number}: no character for {', '.join(sorted(unmatched))}.")
+            episode_data.append({
+                "number": episode.number, "title": episode.title, "scene_count": len(episode.scenes),
+                "over_export_limit": over, "scenes": scenes,
+            })
+        return {
+            "characters": [
+                {
+                    "name": c.name, "role": c.role, "description": c.description, "face_prompt": c.face_prompt,
+                    "negative_prompt": c.negative_prompt, "exists": c.name.lower() in existing,
+                }
+                for c in characters
+            ],
+            "episodes": episode_data,
+            "warnings": warnings,
+        }
+
+    @classmethod
+    @transaction.atomic
+    def create(cls, workspace_id: int, script: str, project_format: str, episode_numbers, create_characters: bool) -> dict:
+        episodes, characters, existing, names = cls._plan(workspace_id, script)
+        if episode_numbers is not None:
+            available = {e.number for e in episodes}
+            missing = sorted(set(episode_numbers) - available)
+            if missing:
+                raise ScriptImportError(f"Episode {missing[0]} is not in the script.")
+            episodes = [e for e in episodes if e.number in set(episode_numbers)]
+        if not episodes:
+            raise ScriptImportError("Select at least one episode.")
+        ids = {name: character.id for name, character in existing.items()}
+        created = []
+        if create_characters:
+            for parsed in characters:
+                if parsed.name.lower() in ids:
+                    continue
+                character = Character.objects.create(
+                    workspace_id=workspace_id, name=parsed.name[:120],
+                    role=parsed.role if len(parsed.role) <= 120 else parsed.role[:119].rstrip() + "…",
+                    description=parsed.description[:5000], face_prompt=parsed.face_prompt[:5000],
+                    negative_prompt=parsed.negative_prompt[:2000],
+                )
+                ids[character.name.lower()] = character.id
+                created.append(character.name)
+        projects = []
+        for episode in episodes:
+            project = Project.objects.create(
+                workspace_id=workspace_id, title=f"Ep {episode.number}: {episode.title}"[:180], format=project_format,
+            )
+            scenes = []
+            for index, scene in enumerate(episode.scenes):
+                matched = match_character(scene.speaker, list(ids)) if scene.speaker else None
+                config = {"source": "script_import", "episode": episode.number, "role": scene.role}
+                for key, value in (("speaker", scene.speaker), ("delivery", scene.delivery), ("location", scene.location)):
+                    if value:
+                        config[key] = value
+                if scene.on_screen:
+                    config["on_screen_text"] = scene.text
+                scenes.append(Scene(
+                    project=project, order_index=index, kind=Scene.Kind.SCRIPT, title=scene.title[:120],
+                    script_text=scene.text, config=config, character_id=ids.get(matched.lower()) if matched else None,
+                ))
+            Scene.objects.bulk_create(scenes)
+            projects.append({"id": project.id, "title": project.title, "scene_count": len(scenes)})
+        return {"projects": projects, "characters_created": created}

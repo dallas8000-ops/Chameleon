@@ -81,6 +81,17 @@ class CharacterCreateSerializer(CharacterWriteSerializer):
     workspace_id = serializers.IntegerField(min_value=1)
 
 
+class ScriptImportSerializer(serializers.Serializer):
+    workspace_id = serializers.IntegerField(min_value=1)
+    script = serializers.CharField(max_length=200_000, trim_whitespace=False)
+    format = serializers.ChoiceField(choices=Project.Format.choices, default=Project.Format.VERTICAL)
+    dry_run = serializers.BooleanField(default=True)
+    create_characters = serializers.BooleanField(default=True)
+    episodes = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, allow_null=True, max_length=30,
+    )
+
+
 class CaptionSegmentSerializer(serializers.Serializer):
     start = serializers.FloatField(min_value=0)
     end = serializers.FloatField(min_value=0)
