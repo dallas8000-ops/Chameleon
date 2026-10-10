@@ -27,3 +27,4 @@ e2e/.runtime-results/
 e2e/.runtime-integration/
 e2e/.runtime-results-integration/
 local-infrastructure-report.md
+local-fixtures/
