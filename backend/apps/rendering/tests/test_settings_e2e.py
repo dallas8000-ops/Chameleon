@@ -15,14 +15,14 @@ PROBE = (
     "os.environ['DJANGO_SETTINGS_MODULE']='chameleon.settings_e2e';"
     "s=c.settings;"
     "print(json.dumps({'engine': s.DATABASES['default']['ENGINE'], 'name': str(s.DATABASES['default']['NAME']),"
-    " 'media': str(s.MEDIA_ROOT), 'key': s.MAGIC_HOUR_API_KEY, 'eager': s.CELERY_TASK_ALWAYS_EAGER}))"
+    " 'media': str(s.MEDIA_ROOT), 'eager': s.CELERY_TASK_ALWAYS_EAGER}))"
 )
 
 
 def run_probe(**overrides):
     env = {k: v for k, v in os.environ.items() if k not in {
         "CHAMELEON_E2E", "CHAMELEON_E2E_RUNTIME_DIR", "DATABASE_URL", "MEDIA_ROOT", "DJANGO_SETTINGS_MODULE"}}
-    env.update(SECRET_KEY="e2e-" + "x" * 40, REDIS_URL="redis://127.0.0.1:1/0", MAGIC_HOUR_API_KEY="")
+    env.update(SECRET_KEY="e2e-" + "x" * 40, REDIS_URL="redis://127.0.0.1:1/0")
     env.update({k: v for k, v in overrides.items() if v is not None})
     return subprocess.run([sys.executable, "-c", PROBE], cwd=BACKEND, env=env, capture_output=True, text=True)
 
@@ -70,6 +70,5 @@ class SettingsE2EIsolationTests(unittest.TestCase):
         self.assertTrue(data["engine"].endswith("sqlite3"))
         self.assertTrue(Path(data["name"]).resolve().is_relative_to(SCRATCH))
         self.assertTrue(Path(data["media"]).resolve().is_relative_to(SCRATCH))
-        self.assertEqual(data["key"], "")
         self.assertTrue(data["eager"])
 

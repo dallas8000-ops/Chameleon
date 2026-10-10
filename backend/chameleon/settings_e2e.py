@@ -55,6 +55,3 @@ MEDIA_ROOT = str(_SCRATCH / "media")
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "chameleon-e2e"}}
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = False
-# Never contact the provider from the harness, whatever the parent environment holds.
-MAGIC_HOUR_API_KEY = ""
-MAGIC_HOUR_WEBHOOK_SECRET = ""

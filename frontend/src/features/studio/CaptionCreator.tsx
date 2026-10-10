@@ -32,12 +32,12 @@ export function CaptionCreator({ projectId, onCreated }: CaptionCreatorProps) {
   }
 
   return (
-    <section aria-label="New caption track" className="mt-6">
-      <label className="block">
+    <section aria-label="New caption track" className="card space-y-3">
+      <label className="field-label">
         Caption language
-        <input className="block border p-1" value={language} onChange={(e) => setLanguage(e.target.value)} />
+        <input className="input" value={language} onChange={(e) => setLanguage(e.target.value)} />
       </label>
-      <button disabled={busy || language.trim() === ""} onClick={() => void create()}>
+      <button className="btn w-full" disabled={busy || language.trim() === ""} onClick={() => void create()}>
         Create caption track
       </button>
       {error ? <ErrorAlert error={error} /> : null}

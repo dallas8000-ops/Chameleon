@@ -5,7 +5,6 @@ import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { createAppRouter } from "../app/router";
-import { GenerationPanel } from "../features/studio/GenerationPanel";
 import { clearCsrfToken } from "../lib/api/client";
 import { resetSessionStore } from "../lib/auth/session-store";
 import { installFetch, json } from "./fetch-mock";
@@ -33,22 +32,8 @@ const baseRoutes = {
   ...csrf,
   "GET /api/projects/5/": json(project),
   "GET /api/assets/?workspace_id=11": json([photo]),
-  "GET /api/jobs/capabilities/?workspace_id=11": json({ capabilities: [{ capability: "image.generate", available: false, can_submit: false, reason_code: "pricing_unavailable" }] }),
-};
-const quoteRoutes = {
-  "GET /api/jobs/capabilities/?workspace_id=11": json({ capabilities: [{ capability: "image.generate", available: true, can_submit: true }] }),
-  "POST /api/jobs/image-generation/quote/": json({
-    quote_id: "quote-1", estimated_credits: 4, pricing_version: "test",
-    expires_at: new Date(Date.now() + 300000).toISOString(), price_guaranteed: false,
-    parameters: { model: "z-image-turbo", resolution: "640px", image_count: 1 },
-    basis: { description: "Test basis" },
-  }),
 };
 const exportRecord = { id: 3, project_id: 5, status: "queued", format: "9:16", settings: {}, error_code: "", error_message: "", video_available: false, subtitles_available: false, created_at: "", updated_at: "" };
-const jobBody = (status: string, extra: Record<string, unknown> = {}) => ({
-  id: 77, workspace_id: 11, project_id: 5, scene_id: null, capability: "image.generate", status,
-  result: {}, quoted_credits: 0, error_code: "", error_message: "", ...extra,
-});
 
 function renderAt(path: string) {
   return render(<RouterProvider router={createAppRouter([path])} />);
@@ -63,82 +48,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("image generation is blocked without a trustworthy cost estimate", async () => {
-  const { calls } = installFetch(baseRoutes);
-  renderAt("/app/projects/5/studio");
-
-  const button = (await screen.findByRole("button", { name: /generate image/i })) as HTMLButtonElement;
-  expect(button.disabled).toBe(true);
-  expect(screen.getByText(/cost estimate unavailable/i)).toBeTruthy();
-  expect(calls.some((call) => call.method === "POST" && call.url.includes("/jobs/"))).toBe(false);
-});
-
-test("presenter generation is shown as unavailable with no submit control", async () => {
-  installFetch(baseRoutes);
-  renderAt("/app/projects/5/studio");
-
-  expect(await screen.findByText(/presenter generation is unavailable/i)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /generate presenter/i })).toBeNull();
-});
-
-test("explains that generated media requires private asset readiness", async () => {
-  installFetch(baseRoutes);
-  renderAt("/app/projects/5/studio");
-  expect(await screen.findByText(/only after private saving is ready/i)).toBeTruthy();
-});
-
-test("quoted generation shows the quote, provider-not-configured state, and no fake success", async () => {
-  installFetch({
-    ...csrf,
-    ...quoteRoutes,
-    "POST /api/jobs/image-generation/": json({ ...jobBody("blocked_provider_not_configured"), code: "provider_not_configured", message: "Not configured", errors: {} }, 409),
-  });
+test("signing out posts to the logout endpoint and returns to sign in", async () => {
+  const { calls } = installFetch({ ...baseRoutes, "POST /api/auth/logout/": json({}, 200) });
   const user = userEvent.setup();
-  render(<GenerationPanel workspaceId={11} projectId={5} />);
-
-  expect(await screen.findByText(/4 credits/i)).toBeTruthy();
-  expect(screen.getByText(/test basis/i)).toBeTruthy();
-  await user.click(screen.getByRole("button", { name: /generate image/i }));
-
-  expect(await screen.findByText(/Not configured/i)).toBeTruthy();
-});
-
-test("submitted jobs are polled by id until a terminal state and show real results/errors", async () => {
-  const { calls } = installFetch({
-    ...csrf,
-    ...quoteRoutes,
-    "POST /api/jobs/image-generation/": json(jobBody("queued"), 202),
-    "GET /api/jobs/77/": [json(jobBody("processing", { quoted_credits: 4 })), json(jobBody("failed", { error_code: "provider_error", error_message: "Provider rejected it" }))],
-  });
-  const user = userEvent.setup();
-  render(<GenerationPanel workspaceId={11} projectId={5} pollIntervalMs={20} />);
-
-  await screen.findByText(/Estimated cost: 4 credits/);
-  await user.click(screen.getByRole("button", { name: /generate image/i }));
-
-  expect(await screen.findByText("Provider rejected it")).toBeTruthy();
-  expect(screen.getByText("failed")).toBeTruthy();
-  const polled = calls.filter((call) => call.url === "/api/jobs/77/").length;
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  expect(calls.filter((call) => call.url === "/api/jobs/77/").length).toBe(polled);
-});
-
-test("polling stops when the panel unmounts", async () => {
-  const { calls } = installFetch({
-    ...csrf,
-    ...quoteRoutes,
-    "POST /api/jobs/image-generation/": json(jobBody("queued"), 202),
-    "GET /api/jobs/77/": json(jobBody("processing")),
-  });
-  const user = userEvent.setup();
-  const view = render(<GenerationPanel workspaceId={11} pollIntervalMs={20} />);
-  await screen.findByText(/Estimated cost: 4 credits/);
-  await user.click(screen.getByRole("button", { name: /generate image/i }));
-  await waitFor(() => expect(calls.some((call) => call.url === "/api/jobs/77/")).toBe(true));
-  view.unmount();
-  const count = calls.length;
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  expect(calls.length).toBe(count);
+  renderAt("/app/projects/5/studio");
+  await user.click(await screen.findByRole("button", { name: "Sign out" }));
+  expect(await screen.findByRole("button", { name: /sign in/i })).toBeTruthy();
+  expect(calls.some((call) => call.method === "POST" && call.url === "/api/auth/logout/")).toBe(true);
 });
 
 test("uploads a private asset with multipart form data and lists it", async () => {
@@ -160,7 +76,7 @@ test("uploads a private asset with multipart form data and lists it", async () =
   expect(post.headers.get("Content-Type")).toBeNull();
 });
 
-test("uploaded and generated sources remain distinct in the list and image picker while generation is disabled", async () => {
+test("uploaded and generated sources remain distinct in the list and image picker", async () => {
   installFetch({
     ...baseRoutes,
     "GET /api/assets/?workspace_id=11": json([
@@ -180,7 +96,7 @@ test("uploaded and generated sources remain distinct in the list and image picke
   expect(screen.getByRole("option", { name: "Legacy image — Source unknown" })).toBeTruthy();
 });
 
-test("upload, image scene and export remain usable without a quote or paid generation request", async () => {
+test("upload, image scene and export work end to end", async () => {
   const { calls } = installFetch({
     ...baseRoutes,
     "POST /api/assets/": json({ ...photo, id: 43, name: "My image" }, 201),
@@ -189,7 +105,7 @@ test("upload, image scene and export remain usable without a quote or paid gener
   });
   const user = userEvent.setup();
   renderAt("/app/projects/5/studio");
-  expect((await screen.findByRole("button", { name: "Generate image" }) as HTMLButtonElement).disabled).toBe(true);
+  await screen.findByText("Hero photo");
   await user.upload(screen.getByLabelText("Upload media"), new File(["fixture"], "my-image.png", { type: "image/png" }));
   await user.click(screen.getByRole("button", { name: "Upload asset" }));
   await screen.findByText("My image");
@@ -202,7 +118,6 @@ test("upload, image scene and export remain usable without a quote or paid gener
   expect(await screen.findByText("Export status: queued")).toBeTruthy();
   const scene = calls.find(call => call.method === "POST" && call.url === "/api/projects/5/scenes/")!;
   expect(JSON.parse(String(scene.body)).config.asset_id).toBe(43);
-  expect(calls.some(call => call.method === "POST" && call.url.includes("/jobs/"))).toBe(false);
 });
 
 test("image scenes require a picked asset, omit blank duration, and send asset_id", async () => {
@@ -280,6 +195,14 @@ test("export page loads the project, requires a caption track choice, and sends 
   expect(screen.queryByText(/download video/i)).toBeNull();
   const post = calls.find((c) => c.method === "POST" && c.url.includes("exports"))!;
   expect(JSON.parse(String(post.body))).toEqual({ burn_captions: true, caption_track_id: 10 });
+});
+
+test("export page warns about scenes without media before queuing", async () => {
+  installFetch(baseRoutes);
+  renderAt("/app/projects/5/export");
+  expect(await screen.findByText(/not ready to export/i)).toBeTruthy();
+  expect(screen.getByText(/Scene 1 \(script\) has no media attached/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Fix in studio" })).toBeTruthy();
 });
 
 test("export page omits the track when the project has at most one", async () => {

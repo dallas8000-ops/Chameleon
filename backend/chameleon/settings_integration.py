@@ -81,6 +81,3 @@ from .settings import *  # noqa: E402,F401,F403
 
 MEDIA_ROOT = str(_SCRATCH / "media")
 Path(MEDIA_ROOT).mkdir(parents=True, exist_ok=True)
-# Never permit provider submission in the local infra harness.
-MAGIC_HOUR_API_KEY = ""
-MAGIC_HOUR_WEBHOOK_SECRET = ""

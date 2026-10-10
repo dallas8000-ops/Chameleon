@@ -10,12 +10,14 @@ type SceneListProps = {
   scenes: Scene[];
   assets: Asset[];
   canWrite?: boolean;
+  selectedId?: number | null;
+  onSelect?: (sceneId: number) => void;
   onAdded: (scene: Scene) => void;
 };
 
 const KINDS: SceneKind[] = ["script", "image", "video"];
 
-export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded }: SceneListProps) {
+export function SceneList({ projectId, scenes, assets, canWrite = true, selectedId = null, onSelect, onAdded }: SceneListProps) {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<SceneKind>("script");
   const [script, setScript] = useState("");
@@ -56,25 +58,39 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded 
   }
 
   return (
-    <section aria-label="Scenes" className="mt-6">
-      <h2 className="text-xl font-semibold">Scenes</h2>
-      {scenes.length === 0 ? <p>No scenes yet.</p> : null}
-      <ol className="list-decimal pl-5">
-        {scenes.map((scene) => (
-          <li key={scene.id}>
-            {scene.title} <span className="text-sm text-gray-600">({scene.kind})</span>
-          </li>
-        ))}
-      </ol>
+    <section aria-label="Scenes" className="card">
+      <h2 className="panel-title">Scenes</h2>
+      {scenes.length === 0 ? (
+        <p className="mt-3 rounded-lg border border-dashed border-line p-4 text-center text-sm text-muted">No scenes yet.</p>
+      ) : (
+        <ol className="mt-3 flex gap-3 overflow-x-auto pb-2">
+          {scenes.map((scene, index) => (
+            <li key={scene.id} className="shrink-0">
+              <button
+                type="button"
+                aria-pressed={scene.id === selectedId}
+                onClick={() => onSelect?.(scene.id)}
+                className={`flex h-24 w-40 flex-col justify-between rounded-lg border p-3 text-left transition ${
+                  scene.id === selectedId ? "border-brand bg-brand-soft" : "border-line bg-canvas hover:border-faint"
+                }`}
+              >
+                <span className="text-xs text-faint">#{index + 1}</span>
+                <span className="block truncate text-sm font-medium">{scene.title}</span>
+                <span className="text-xs text-muted">{scene.kind}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
       {canWrite ? (
-        <form onSubmit={(event) => void add(event)} className="mt-3">
-          <label className="block">
+        <form onSubmit={(event) => void add(event)} className="mt-4 grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
+          <label className="field-label">
             Scene title
-            <input required maxLength={120} className="block border p-1" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <input required maxLength={120} className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
           </label>
-          <label className="block">
+          <label className="field-label">
             Scene kind
-            <select className="block border p-1" value={kind} onChange={(e) => { setKind(e.target.value as SceneKind); setAssetId(""); }}>
+            <select className="input" value={kind} onChange={(e) => { setKind(e.target.value as SceneKind); setAssetId(""); }}>
               {KINDS.map((value) => (
                 <option key={value} value={value}>
                   {value}
@@ -82,14 +98,14 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded 
               ))}
             </select>
           </label>
-          <label className="block">
+          <label className="field-label sm:col-span-2">
             Script
-            <textarea className="block w-full border p-1" value={script} onChange={(e) => setScript(e.target.value)} />
+            <textarea className="input min-h-20" value={script} onChange={(e) => setScript(e.target.value)} />
           </label>
           {needsAsset && (
-            <label className="block">
+            <label className="field-label">
               Media asset
-              <select className="block border p-1" value={assetId} onChange={(e) => setAssetId(e.target.value)}>
+              <select className="input" value={assetId} onChange={(e) => setAssetId(e.target.value)}>
                 <option value="">Select a private {kind}…</option>
                 {choices.map((asset) => (
                   <option key={asset.id} value={asset.id}>
@@ -100,10 +116,10 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded 
             </label>
           )}
           {kind === "image" && (
-            <label className="block">
+            <label className="field-label">
               Duration (seconds, 1-120; blank uses 5)
               <input
-                className="block border p-1"
+                className="input"
                 type="number"
                 min={1}
                 max={120}
@@ -112,14 +128,16 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, onAdded 
               />
             </label>
           )}
-          <button type="submit" disabled={busy || title.trim() === "" || (needsAsset && assetId === "")}>
-            Add scene
-          </button>
+          <div className="sm:col-span-2">
+            <button className="btn btn-primary" type="submit" disabled={busy || title.trim() === "" || (needsAsset && assetId === "")}>
+              Add scene
+            </button>
+          </div>
         </form>
       ) : (
-        <p className="text-sm text-gray-600">You have read-only access to this project.</p>
+        <p className="mt-3 text-sm text-muted">You have read-only access to this project.</p>
       )}
-      {error ? <ErrorAlert error={error} /> : null}
+      {error ? <div className="mt-3"><ErrorAlert error={error} /></div> : null}
     </section>
   );
 }

@@ -11,7 +11,6 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from rest_framework import serializers
 
-from apps.jobs.models import GenerationJob
 from apps.studio.models import Asset, CaptionTrack, Export, Project
 from apps.studio.serializers import validate_segments
 
@@ -87,24 +86,6 @@ def snapshot_export(project: Project, data: dict) -> tuple[str, dict, dict]:
                 "message": "Use a workspace Asset as the full-frame source; paths, URLs and overlays are unsupported.",
             }
         asset_id = config.get("asset_id")
-        if "generation_job_id" in config:
-            job_id = config["generation_job_id"]
-            if not valid_id(job_id):
-                raise serializers.ValidationError({"generation_job_id": ["Must be a positive integer."]})
-            job = GenerationJob.objects.filter(
-                pk=job_id, workspace_id=project.workspace_id, project=project,
-            ).first()
-            if job is None:
-                raise ExportNotFound
-            if asset_id is not None:
-                raise serializers.ValidationError({"scenes": ["Use asset_id or generation_job_id, not both."]})
-            asset_id = job.generated_asset_id
-            if job.status != GenerationJob.Status.COMPLETED or job.asset_status != "ready" or not valid_id(asset_id):
-                manifest["source_error"] = {
-                    "code": "export_source_unavailable",
-                    "message": "Generation must be completed and copied into a durable workspace Asset before export.",
-                }
-                continue
         if asset_id is None:
             continue
         if not valid_id(asset_id):
@@ -175,7 +156,7 @@ def encoding_args() -> list[str]:
 
 
 def run_process(command: list[str], directory: Path, deadline: float, *, capture=False):
-    remaining = deadline - time.monotonic()
+    remaining = min(deadline - time.monotonic(), RENDER_SECONDS)
     if remaining <= 0:
         raise ExportFailure("export_timeout", "The export exceeded its render time budget.")
     try:

@@ -135,8 +135,7 @@ Done on 2026-10-08 against the live service:
 Still open:
 
 1. Run the Django suite against a **disposable** PostgreSQL database
-   (`CHAMELEON_TEST_DATABASE_URL`); the 6 generation-race skips only apply to
-   SQLite.
+   (`CHAMELEON_TEST_DATABASE_URL`).
 2. Confirm exactly one beat process is running and that killing the worker
    mid-export is recovered by the sweeper.
 

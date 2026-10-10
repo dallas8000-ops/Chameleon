@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import sys
@@ -20,11 +19,6 @@ def env_list(name: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def env_json(name, fallback):
-    try:
-        return json.loads(os.environ.get(name, json.dumps(fallback)))
-    except (ValueError, TypeError):
-        return fallback
 
 if RUNNING_TESTS:
     SECRET_KEY = os.environ.get("SECRET_KEY", "test-secret")
@@ -60,7 +54,6 @@ INSTALLED_APPS = [
     "rest_framework",
     "apps.accounts.apps.AccountsConfig",
     "apps.studio.apps.StudioConfig",
-    "apps.jobs.apps.JobsConfig",
     "apps.rendering.apps.RenderingConfig",
     "api",
 ]
@@ -126,23 +119,9 @@ CELERY_BROKER_URL = os.environ.get(
     "CELERY_BROKER_URL",
     os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
 )
-MAGIC_HOUR_API_KEY = os.environ.get("MAGIC_HOUR_API_KEY", "")
-MAGIC_HOUR_WEBHOOK_SECRET = os.environ.get("MAGIC_HOUR_WEBHOOK_SECRET", "")
-# Approval of code is not approval of live pricing, destinations, or deployment storage.
-GENERATION_IMAGE_TARIFF = env_json("GENERATION_IMAGE_TARIFF", {})
-GENERATION_DOWNLOAD_ORIGINS = env_json("GENERATION_DOWNLOAD_ORIGINS", [])
-GENERATION_STORAGE_CONFIRMED = env_bool("GENERATION_STORAGE_CONFIRMED", False)
 CELERY_BEAT_SCHEDULE = {
     "recover-exports": {
         "task": "apps.rendering.tasks.recover_exports",
-        "schedule": 30.0,
-    },
-    "recover-provider-polls": {
-        "task": "apps.jobs.tasks.recover_provider_polls",
-        "schedule": 30.0,
-    },
-    "recover-generated-assets": {
-        "task": "apps.jobs.ingestion.recover_ingestions",
         "schedule": 30.0,
     },
 }
@@ -178,7 +157,6 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "auth": os.environ.get("AUTH_THROTTLE_RATE", "5/minute"),
-        "generation_quote": "20/minute",
     },
 }
 
