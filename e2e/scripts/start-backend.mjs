@@ -33,7 +33,6 @@ const env = {
   ALLOWED_HOSTS: "127.0.0.1,localhost",
   CSRF_TRUSTED_ORIGINS: `http://127.0.0.1:${webPort}`,
   AUTH_THROTTLE_RATE: "1000/minute",
-  MAGIC_HOUR_API_KEY: "",
   MEDIA_ROOT: path.join(runtime, "media"),
   FFMPEG_BINARY: require("ffmpeg-static"),
   FFPROBE_BINARY: require("ffprobe-static").path,

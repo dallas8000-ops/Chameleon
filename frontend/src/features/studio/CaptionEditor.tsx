@@ -80,62 +80,67 @@ export function CaptionEditor({ caption, canWrite = true, onSaved }: CaptionEdit
   }
 
   return (
-    <section aria-label="Captions" className="mt-6">
-      <h2 className="text-xl font-semibold">Captions ({caption.language})</h2>
-      {segments.length === 0 ? <p>No caption segments.</p> : null}
-      {segments.map((segment, index) => (
-        <div key={index} className="mb-2 flex gap-2">
-          <input
-            aria-label={`Segment ${index + 1} start`}
-            type="number"
-            step="0.1"
-            min={0}
-            value={segment.start}
-            disabled={!canWrite || busy}
-            onChange={(e) => update(index, { start: Number(e.target.value) })}
-          />
-          <input
-            aria-label={`Segment ${index + 1} end`}
-            type="number"
-            step="0.1"
-            min={0}
-            value={segment.end}
-            disabled={!canWrite || busy}
-            onChange={(e) => update(index, { end: Number(e.target.value) })}
-          />
-          <input
-            aria-label={`Segment ${index + 1} text`}
-            maxLength={500}
-            className="flex-1 border p-1"
-            value={segment.text}
-            disabled={!canWrite || busy}
-            onChange={(e) => update(index, { text: e.target.value })}
-          />
-          {canWrite ? (
-            <button type="button" disabled={busy} onClick={() => removeSegment(index)}>
-              Remove segment {index + 1}
-            </button>
-          ) : null}
-        </div>
-      ))}
+    <section aria-label="Captions" className="card">
+      <h2 className="panel-title">Captions ({caption.language})</h2>
+      {segments.length === 0 ? <p className="mt-3 text-sm text-muted">No caption segments.</p> : null}
+      <div className="mt-3 space-y-3">
+        {segments.map((segment, index) => (
+          <div key={index} className="rounded-lg border border-line bg-canvas p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                aria-label={`Segment ${index + 1} start`}
+                className="input mt-0"
+                type="number"
+                step="0.1"
+                min={0}
+                value={segment.start}
+                disabled={!canWrite || busy}
+                onChange={(e) => update(index, { start: Number(e.target.value) })}
+              />
+              <input
+                aria-label={`Segment ${index + 1} end`}
+                className="input mt-0"
+                type="number"
+                step="0.1"
+                min={0}
+                value={segment.end}
+                disabled={!canWrite || busy}
+                onChange={(e) => update(index, { end: Number(e.target.value) })}
+              />
+            </div>
+            <input
+              aria-label={`Segment ${index + 1} text`}
+              maxLength={500}
+              className="input"
+              value={segment.text}
+              disabled={!canWrite || busy}
+              onChange={(e) => update(index, { text: e.target.value })}
+            />
+            {canWrite ? (
+              <button type="button" className="btn btn-ghost mt-2 px-2 py-1 text-xs" disabled={busy} onClick={() => removeSegment(index)}>
+                Remove segment {index + 1}
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
       {canWrite ? (
-        <div className="flex gap-2">
-          <button type="button" disabled={busy} onClick={addSegment}>
+        <div className="mt-4 flex gap-2">
+          <button type="button" className="btn" disabled={busy} onClick={addSegment}>
             Add segment
           </button>
-          <button type="button" disabled={busy} onClick={() => void save()}>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void save()}>
             Save captions
           </button>
         </div>
       ) : null}
       {validation ? (
-        <p role="alert" className="text-sm text-red-800">
+        <p role="alert" className="mt-3 text-sm text-danger">
           {validation}
         </p>
       ) : null}
-      {saved ? <p role="status">Captions saved.</p> : null}
-      {error ? <ErrorAlert error={error} /> : null}
+      {saved ? <p role="status" className="mt-3 text-sm text-brand">Captions saved.</p> : null}
+      {error ? <div className="mt-3"><ErrorAlert error={error} /></div> : null}
     </section>
   );
 }
-

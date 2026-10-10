@@ -10,7 +10,7 @@ type ErrorAlertProps = {
 export function ErrorAlert({ error, onRetry }: ErrorAlertProps) {
   const { message, details } = errorMessages(error);
   return (
-    <div role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+    <div role="alert" className="rounded-lg border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
       <p className="font-medium">{message}</p>
       {details.length > 0 && (
         <ul className="mt-1 list-disc pl-5">
@@ -20,7 +20,7 @@ export function ErrorAlert({ error, onRetry }: ErrorAlertProps) {
         </ul>
       )}
       {onRetry && (
-        <button type="button" onClick={onRetry} className="mt-2 rounded border border-red-400 px-2 py-1">
+        <button type="button" onClick={onRetry} className="btn btn-danger mt-2 px-2 py-1">
           Retry
         </button>
       )}

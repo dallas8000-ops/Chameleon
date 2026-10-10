@@ -21,7 +21,7 @@ PROBE = (
     "s=c.settings;"
     "print(json.dumps({'engine': s.DATABASES['default']['ENGINE'], 'name': s.DATABASES['default']['NAME'],"
     " 'host': s.DATABASES['default']['HOST'], 'port': str(s.DATABASES['default']['PORT']),"
-    " 'media': str(s.MEDIA_ROOT), 'key': s.MAGIC_HOUR_API_KEY}))"
+    " 'media': str(s.MEDIA_ROOT)}))"
 )
 
 
@@ -40,8 +40,6 @@ def run_probe(**overrides):
             "CELERY_BROKER_URL",
             "MEDIA_ROOT",
             "DJANGO_SETTINGS_MODULE",
-            "MAGIC_HOUR_API_KEY",
-            "MAGIC_HOUR_WEBHOOK_SECRET",
         }
     }
     env.update(
@@ -50,8 +48,6 @@ def run_probe(**overrides):
         DATABASE_URL=DB_URL,
         REDIS_URL=REDIS_URL,
         CELERY_BROKER_URL=BROKER_URL,
-        MAGIC_HOUR_API_KEY="",
-        MAGIC_HOUR_WEBHOOK_SECRET="",
     )
     env.update({k: v for k, v in overrides.items() if v is not None})
     return subprocess.run([sys.executable, "-c", PROBE], cwd=BACKEND, env=env, capture_output=True, text=True)
@@ -145,4 +141,3 @@ class SettingsIntegrationIsolationTests(unittest.TestCase):
         self.assertEqual(data["host"], "127.0.0.1")
         self.assertEqual(data["port"], "55449")
         self.assertTrue(Path(data["media"]).resolve().is_relative_to(SCRATCH))
-        self.assertEqual(data["key"], "")

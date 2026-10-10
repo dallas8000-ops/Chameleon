@@ -37,30 +37,42 @@ export function AssetPanel({ workspaceId, assets, canWrite, onUploaded }: AssetP
   }
 
   return (
-    <section aria-label="Media assets" className="mt-6">
-      <h2 className="text-xl font-semibold">Media assets</h2>
-      <p>Upload your own images or videos for scenes and export. No generation setup or cost quote is needed.
-        Uploads stay private and are not sent to a generation provider.</p>
-      {assets.length === 0 ? <p>No private assets yet.</p> : null}
-      <ul className="list-disc pl-5">
+    <section aria-label="Media assets" className="card">
+      <h2 className="panel-title">Media assets</h2>
+      <p className="mt-1 text-sm text-muted">Upload images or videos to use in scenes. Uploads stay private to this workspace.</p>
+      {assets.length === 0 ? <p className="mt-4 rounded-lg border border-dashed border-line p-4 text-center text-sm text-muted">No private assets yet.</p> : null}
+      <ul className="mt-4 space-y-2">
         {assets.map((asset) => (
-          <li key={asset.id}>
-            {asset.name} <span className="text-sm text-gray-600">({asset.asset_type} · {assetSourceLabel(asset)})</span>
+          <li key={asset.id} className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2">
+            <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-raised text-xs text-muted">
+              {asset.asset_type === "video" ? "▶" : "▢"}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">{asset.name}</span>
+              <span className="block text-xs text-muted">
+                {asset.asset_type} · {assetSourceLabel(asset)}
+              </span>
+            </span>
           </li>
         ))}
       </ul>
       {canWrite ? (
-        <div className="mt-2">
-          <label className="block">
+        <div className="mt-4 space-y-3 border-t border-line pt-4">
+          <label className="field-label">
             Upload media
-            <input type="file" accept="image/*,video/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            <input
+              type="file"
+              accept="image/*,video/*"
+              className="input file:mr-3 file:rounded-md file:border-0 file:bg-raised file:px-3 file:py-1 file:text-sm file:text-ink"
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
           </label>
-          <button disabled={busy || !file} onClick={() => void upload()}>
+          <button className="btn btn-primary w-full" disabled={busy || !file} onClick={() => void upload()}>
             Upload asset
           </button>
         </div>
       ) : null}
-      {error ? <ErrorAlert error={error} /> : null}
+      {error ? <div className="mt-3"><ErrorAlert error={error} /></div> : null}
     </section>
   );
 }

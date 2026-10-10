@@ -50,10 +50,8 @@ async function csrf(page: Page): Promise<string> {
 test("creator registers, uploads, edits captions, and exports a real MP4", async ({ page, browser, baseURL }) => {
   const email = `creator-${Date.now()}-${Math.random().toString(16).slice(2, 8)}@example.com`;
   const password = "Zq7!pleasant-Harbor-42";
-  const providerWrites: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (request.method() !== "GET" && /\/api\/jobs\//.test(url.pathname)) providerWrites.push(url.pathname);
     // The browser must only talk to the local origin.
     expect(url.hostname).toBe("127.0.0.1");
   });
@@ -86,13 +84,9 @@ test("creator registers, uploads, edits captions, and exports a real MP4", async
   await expect(page.getByRole("heading", { name: /Studio: Launch teaser/ })).toBeVisible();
   const projectId = page.url().match(/projects\/(\d+)\//)![1];
 
-  // Generation is gated and presenter generation unavailable; no paid request is possible.
-  await expect(page.getByText(/Cost estimate unavailable/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Generate image", exact: true })).toBeDisabled();
-  await expect(page.getByText(/Presenter generation is unavailable/)).toBeVisible();
-  const capabilities = await (await page.request.get("/api/jobs/capabilities/?workspace_id=1")).json();
-  const image = capabilities.capabilities.find((item: { capability: string }) => item.capability === "image.generate");
-  expect(image.can_submit).toBe(false);
+  // Generation is not built yet; the studio says so plainly and offers no generate control.
+  await expect(page.getByText("Not available yet", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /generate/i })).toHaveCount(0);
 
   // Private image upload and picker.
   await page.getByLabel("Upload media").setInputFiles({ name: "frame.png", mimeType: "image/png", buffer: png(320, 180) });
@@ -107,11 +101,11 @@ test("creator registers, uploads, edits captions, and exports a real MP4", async
   });
   await page.getByLabel(/Duration/).fill("2");
   await page.getByRole("button", { name: "Add scene", exact: true }).click();
-  await expect(page.getByRole("listitem").filter({ hasText: "Opening frame (image)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Opening frame/ })).toBeVisible();
 
   // Reload: the scene and its asset/duration config must come from the server, not client state.
   await page.reload();
-  await expect(page.getByRole("listitem").filter({ hasText: "Opening frame (image)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Opening frame/ })).toBeVisible();
   const assets = await (await page.request.get("/api/assets/?workspace_id=1")).json();
   const assetList = (assets.results ?? assets) as { id: number; name: string }[];
   const frame = assetList.find((item) => item.name === "frame.png")!;
@@ -205,8 +199,6 @@ test("creator registers, uploads, edits captions, and exports a real MP4", async
     expect(body).not.toMatch(/frame\.png|Launch teaser|Hello Chameleon|Opening frame/);
   }
   await other.close();
-
-  expect(providerWrites).toEqual([]);
 });
 
 

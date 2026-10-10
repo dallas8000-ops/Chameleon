@@ -30,6 +30,7 @@ export type SessionState = SessionData & {
   verifySession: () => Promise<boolean>;
   register: (input: RegisterInput) => Promise<RegisterResponse>;
   login: (input: LoginInput) => Promise<LoginResponse>;
+  logout: () => Promise<void>;
 };
 
 const initialData: SessionData = {
@@ -149,6 +150,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set(authenticatedData(result.user, result.workspaces, null));
     await rotateCsrfToken();
     return result;
+  },
+
+  logout: async () => {
+    try {
+      await apiRequest("/auth/logout/", { method: "POST" });
+    } finally {
+      sessionRequest = null;
+      clearCsrfToken();
+      set({ ...initialData, status: "anonymous" });
+    }
   },
 }));
 

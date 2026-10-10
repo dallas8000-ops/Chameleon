@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 
+import { AppShell } from "../../components/AppShell";
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
 import type { WorkspaceMembership } from "../../lib/api/types";
@@ -23,11 +24,11 @@ export function DashboardPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      {(status === "unknown" || status === "loading") && <p role="status">Loading your workspace…</p>}
+    <AppShell>
+      {(status === "unknown" || status === "loading") && <p role="status" className="text-muted">Loading your workspace…</p>}
       {status === "error" && <ErrorAlert error={sessionError} onRetry={() => void reloadSession()} />}
       {status === "authenticated" && <WorkspaceDashboard />}
-    </main>
+    </AppShell>
   );
 }
 
@@ -65,23 +66,23 @@ function WorkspaceDashboard() {
 
   return (
     <>
-      <header>
-        <p className="text-sm uppercase tracking-wide text-gray-500">Workspace</p>
-        <h1 className="text-3xl font-semibold">{workspaceName ?? "Your workspace"}</h1>
-        {activeRole && <p className="text-sm text-gray-600">Role: {activeRole}</p>}
+      <header className="mb-8">
+        <p className="text-xs font-medium uppercase tracking-widest text-faint">Workspace</p>
+        <h1 className="mt-1 text-title">{workspaceName ?? "Your workspace"}</h1>
+        {activeRole && <p className="mt-1 text-sm text-muted">Role: {activeRole}</p>}
       </header>
       {state.status === "loading" && (
-        <p role="status" className="mt-4 text-gray-600">
+        <p role="status" className="text-muted">
           Loading workspaces…
         </p>
       )}
       {state.status === "error" && (
-        <div className="mt-4">
+        <div>
           <ErrorAlert error={state.error} onRetry={retry} />
         </div>
       )}
       {state.status === "ready" && activeWorkspaceId === null && (
-        <p className="mt-4 text-gray-600">You are not a member of any workspace yet.</p>
+        <p className="text-muted">You are not a member of any workspace yet.</p>
       )}
       {state.status === "ready" && activeWorkspaceId !== null && <ProjectList workspaceId={activeWorkspaceId} />}
     </>

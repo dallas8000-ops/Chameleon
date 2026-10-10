@@ -65,56 +65,67 @@ export function ProjectList({ workspaceId }: ProjectListProps) {
   }, [workspaceId, attempt]);
 
   return (
-    <section aria-labelledby="projects-heading" className="mt-6">
-      <h2 id="projects-heading" className="text-xl font-semibold">
-        Projects
-      </h2>
+    <section aria-labelledby="projects-heading" className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+      <div className="order-2 lg:order-1">
+        <h2 id="projects-heading" className="mb-4 text-heading">
+          Projects
+        </h2>
+        {state.status === "loading" && (
+          <p role="status" className="text-muted">
+            Loading projects…
+          </p>
+        )}
+        {state.status === "error" && (
+          <div>
+            <ErrorAlert error={state.error} onRetry={retry} />
+          </div>
+        )}
+        {state.status === "ready" && state.projects.length === 0 && (
+          <p className="card text-center text-muted">No projects yet.</p>
+        )}
+        {state.status === "ready" && state.projects.length > 0 && (
+          <ul aria-labelledby="projects-heading" className="grid gap-4 sm:grid-cols-2">
+            {state.projects.map((project) => (
+              <li key={project.id} className="card transition hover:border-faint">
+                <div
+                  aria-hidden="true"
+                  className={`mb-4 rounded-lg border border-line bg-canvas ${
+                    project.format === "9:16" ? "mx-auto aspect-[9/16] h-28" : "aspect-video w-full"
+                  }`}
+                />
+                <Link className="block truncate font-medium text-ink" to={`/app/projects/${project.id}/studio`}>
+                  {project.title}
+                </Link>
+                <p className="mt-1 flex items-center gap-2 text-xs text-muted">
+                  <span className="badge">{project.format}</span>
+                  <span>{project.status}</span>
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {canCreate && (
-        <form onSubmit={(event) => void createProject(event)} className="mt-2">
-          <label className="block">
+        <form onSubmit={(event) => void createProject(event)} className="card order-1 h-fit space-y-4 lg:order-2">
+          <h2 className="text-heading">New project</h2>
+          <label className="field-label">
             Project title
-            <input required maxLength={180} className="block border p-1" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <input required maxLength={180} className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
           </label>
-          <label className="block">
+          <label className="field-label">
             Format
-            <select className="block border p-1" value={format} onChange={(e) => setFormat(e.target.value as ProjectFormat)}>
+            <select className="input" value={format} onChange={(e) => setFormat(e.target.value as ProjectFormat)}>
               <option value="9:16">9:16</option>
               <option value="16:9">16:9</option>
             </select>
           </label>
-          <button type="submit" disabled={creating || title.trim() === ""}>
+          <button type="submit" className="btn btn-primary w-full" disabled={creating || title.trim() === ""}>
             Create project
           </button>
           {createError ? <ErrorAlert error={createError} /> : null}
         </form>
-      )}      {state.status === "loading" && (
-        <p role="status" className="mt-2 text-gray-600">
-          Loading projects…
-        </p>
-      )}
-      {state.status === "error" && (
-        <div className="mt-2">
-          <ErrorAlert error={state.error} onRetry={retry} />
-        </div>
-      )}
-      {state.status === "ready" && state.projects.length === 0 && (
-        <p className="mt-2 text-gray-600">No projects yet.</p>
-      )}
-      {state.status === "ready" && state.projects.length > 0 && (
-        <ul aria-labelledby="projects-heading" className="mt-2 divide-y divide-gray-200">
-          {state.projects.map((project) => (
-            <li key={project.id} className="py-2">
-              <Link className="font-medium underline" to={`/app/projects/${project.id}/studio`}>
-                {project.title}
-              </Link>
-              <p className="text-sm text-gray-600">
-                {project.format} · {project.status}
-              </p>
-            </li>
-          ))}
-        </ul>
       )}
     </section>
   );
 }
-

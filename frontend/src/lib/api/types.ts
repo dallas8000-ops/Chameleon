@@ -83,37 +83,6 @@ export type CaptionTrack = {
 
 export type ProjectDetail = Project & { scenes: Scene[]; captions: CaptionTrack[] };
 
-export type GenerationJob = {
-  id: number;
-  workspace_id: number;
-  project_id: number | null;
-  scene_id: number | null;
-  capability: string;
-  status: string;
-  result?: Record<string, unknown>;
-  quoted_credits?: number | null;
-  provider_reported_credits?: number | null;
-  asset_status?: "not_requested" | "pending" | "ingesting" | "ready" | "failed";
-  asset_error_code?: string;
-  asset_retryable?: boolean;
-  error_code: string;
-  error_message: string;
-};
-
-export type GenerationQuote = {
-  quote_id: string;
-  estimated_credits: number;
-  pricing_version: string;
-  expires_at: string;
-  price_guaranteed: false;
-  parameters: { model: string; resolution: string; image_count: number };
-  basis: { description: string };
-};
-
-export type GenerationCapabilities = {
-  capabilities: { capability: string; available: boolean; can_submit: boolean; reason_code?: string | null }[];
-};
-
 export type ExportRecord = {
   id: number;
   project_id: number;

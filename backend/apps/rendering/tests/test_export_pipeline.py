@@ -11,7 +11,6 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from kombu.exceptions import OperationalError
 
-from apps.jobs.models import GenerationJob
 from apps.studio.models import Asset, CaptionTrack, Scene
 from apps.studio.tests.fixtures import StudioFixture
 
@@ -97,31 +96,24 @@ class ExportPipelineTests(StudioFixture):
         self.assertNotIn("manifest", detail.json())
         self.assertNotIn("output_path", detail.json())
 
-    @override_settings(
-        MAGIC_HOUR_API_KEY="", GENERATION_IMAGE_TARIFF={},
-        GENERATION_DOWNLOAD_ORIGINS=[], GENERATION_STORAGE_CONFIRMED=False,
-    )
-    def test_uploaded_image_scene_exports_without_generation_activation(self):
+    def test_uploaded_image_scene_exports(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
-        with patch("apps.providers.registry.ProviderRegistry.get") as provider:
-            response = self.client.post("/api/assets/", {
-                "workspace_id": self.workspace.id,
-                "file": SimpleUploadedFile("my-image.png", b"\x89PNG\r\n\x1a\n" + b"fixture", "image/png"),
-            })
-            self.assertEqual(response.status_code, 201, response.content)
-            asset_id = response.json()["id"]
-            listed = self.client.get(f"/api/assets/?workspace_id={self.workspace.id}").json()
-            self.assertIn(asset_id, [item["id"] for item in listed])
-            scene = self.post(f"/api/projects/{self.project.id}/scenes/", {
-                "kind": "image", "title": "My image", "config": {"asset_id": asset_id, "duration_seconds": 5},
-            })
-            self.assertEqual(scene.status_code, 201, scene.content)
-            export = self.create_export()
-            self.render(export)
-            self.assertEqual(export.status, "completed")
-            self.assertTrue(export.output_path)
-            self.assertFalse(GenerationJob.objects.exists())
-            provider.assert_not_called()
+        response = self.client.post("/api/assets/", {
+            "workspace_id": self.workspace.id,
+            "file": SimpleUploadedFile("my-image.png", b"\x89PNG\r\n\x1a\n" + b"fixture", "image/png"),
+        })
+        self.assertEqual(response.status_code, 201, response.content)
+        asset_id = response.json()["id"]
+        listed = self.client.get(f"/api/assets/?workspace_id={self.workspace.id}").json()
+        self.assertIn(asset_id, [item["id"] for item in listed])
+        scene = self.post(f"/api/projects/{self.project.id}/scenes/", {
+            "kind": "image", "title": "My image", "config": {"asset_id": asset_id, "duration_seconds": 5},
+        })
+        self.assertEqual(scene.status_code, 201, scene.content)
+        export = self.create_export()
+        self.render(export)
+        self.assertEqual(export.status, "completed")
+        self.assertTrue(export.output_path)
 
     def test_no_source_is_explicit_failed_export(self):
         export = self.create_export()
@@ -166,41 +158,17 @@ class ExportPipelineTests(StudioFixture):
         foreign = CaptionTrack.objects.create(project=other, language="en")
         self.assertEqual(self.post(self.url, {"caption_track_id": foreign.id}).status_code, 404)
 
-    def test_foreign_asset_and_generation_job_return_404(self):
-        scene = self.scene(self.asset(foreign=True))
-        self.assertEqual(self.post(self.url, {}).status_code, 404)
-        foreign = GenerationJob.objects.create(
-            workspace=self.other_workspace, capability="image.generate", status="completed",
-        )
-        scene.config = {"generation_job_id": foreign.id}
-        scene.save()
+    def test_foreign_asset_returns_404(self):
+        self.scene(self.asset(foreign=True))
         self.assertEqual(self.post(self.url, {}).status_code, 404)
 
-    def test_temporary_provider_url_and_client_path_never_render(self):
-        job = GenerationJob.objects.create(
-            workspace=self.workspace, project=self.project, capability="image.generate",
-            status="completed", result={"url": "http://127.0.0.1/private"},
-        )
-        scene = self.scene(generation_job_id=job.id)
-        export = self.create_export()
-        self.render(export)
-        self.assertEqual(export.error_code, "export_source_unavailable")
+    def test_client_path_never_renders(self):
+        scene = self.scene(self.asset())
         scene.config = {"rendered_path": "C:\\secret.mp4"}
         scene.save()
         export = self.create_export()
         self.render(export)
         self.assertEqual(export.error_code, "export_unsafe_source")
-
-    def test_durable_job_asset_can_render(self):
-        asset = self.asset()
-        job = GenerationJob.objects.create(
-            workspace=self.workspace, project=self.project, capability="image.generate",
-            status="completed", result={"asset_id": asset.id}, asset_status="ready", generated_asset=asset,
-        )
-        self.scene(generation_job_id=job.id)
-        export = self.create_export()
-        self.render(export)
-        self.assertEqual(export.status, "completed")
 
     def test_image_duration_bounds_and_video_duration_override_rejected(self):
         image = self.asset()

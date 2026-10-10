@@ -219,8 +219,6 @@ async function main() {
     ALLOWED_HOSTS: "127.0.0.1,localhost",
     CSRF_TRUSTED_ORIGINS: `http://127.0.0.1:${webPort}`,
     MEDIA_ROOT: mediaDir,
-    MAGIC_HOUR_API_KEY: "",
-    MAGIC_HOUR_WEBHOOK_SECRET: "",
     FFMPEG_BINARY: path.join(root, "e2e", "node_modules", "ffmpeg-static", "ffmpeg.exe"),
     FFPROBE_BINARY: path.join(root, "e2e", "node_modules", "ffprobe-static", "bin", "win32", "x64", "ffprobe.exe"),
   };
