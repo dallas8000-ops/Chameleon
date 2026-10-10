@@ -40,6 +40,9 @@ export function AppShell({ children, wide = false, projectId }: AppShellProps) {
           <NavLink to="/app" end className={navClass}>
             Projects
           </NavLink>
+          <NavLink to="/app/characters" className={navClass}>
+            Characters
+          </NavLink>
           {projectId !== undefined && (
             <>
               <NavLink to={`/app/projects/${projectId}/studio`} className={navClass}>

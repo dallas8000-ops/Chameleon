@@ -68,7 +68,26 @@ export type Scene = {
   title: string;
   script_text: string;
   config: Record<string, unknown>;
+  character_id?: number | null;
 };
+
+export type Character = {
+  id: number;
+  workspace_id: number;
+  name: string;
+  role: string;
+  description: string;
+  face_prompt: string;
+  negative_prompt: string;
+  voice_notes: string;
+  reference_asset_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CharacterInput = Partial<
+  Pick<Character, "name" | "role" | "description" | "face_prompt" | "negative_prompt" | "voice_notes" | "reference_asset_id">
+>;
 
 export type CaptionSegment = { start: number; end: number; text: string };
 

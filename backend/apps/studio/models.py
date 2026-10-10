@@ -29,6 +29,28 @@ class Project(models.Model):
         ordering = ["-created_at", "-id"]
 
 
+class Character(models.Model):
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="characters")
+    name = models.CharField(max_length=120)
+    role = models.CharField(max_length=120, blank=True)
+    description = models.TextField(blank=True)
+    face_prompt = models.TextField(blank=True)
+    negative_prompt = models.TextField(blank=True)
+    voice_notes = models.TextField(blank=True)
+    # The master face reference; kept if the character is edited and cleared if the asset is deleted.
+    reference_asset = models.ForeignKey(
+        "Asset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["workspace", "name"], name="unique_character_name_per_workspace"),
+        ]
+
+
 class Scene(models.Model):
     class Kind(models.TextChoices):
         SCRIPT = "script", "Script"
@@ -42,6 +64,7 @@ class Scene(models.Model):
     title = models.CharField(max_length=120)
     script_text = models.TextField(blank=True)
     config = models.JSONField(default=dict, blank=True)
+    character = models.ForeignKey(Character, null=True, blank=True, on_delete=models.SET_NULL, related_name="scenes")
 
     class Meta:
         ordering = ["order_index", "id"]

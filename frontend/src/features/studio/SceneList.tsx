@@ -2,13 +2,14 @@ import React, { useState } from "react";
 
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
-import type { Asset, Scene, SceneKind } from "../../lib/api/types";
+import type { Asset, Character, Scene, SceneKind } from "../../lib/api/types";
 import { assetSourceLabel } from "./asset-source";
 
 type SceneListProps = {
   projectId: number;
   scenes: Scene[];
   assets: Asset[];
+  characters?: Character[];
   canWrite?: boolean;
   selectedId?: number | null;
   onSelect?: (sceneId: number) => void;
@@ -17,11 +18,12 @@ type SceneListProps = {
 
 const KINDS: SceneKind[] = ["script", "image", "video"];
 
-export function SceneList({ projectId, scenes, assets, canWrite = true, selectedId = null, onSelect, onAdded }: SceneListProps) {
+export function SceneList({ projectId, scenes, assets, characters = [], canWrite = true, selectedId = null, onSelect, onAdded }: SceneListProps) {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<SceneKind>("script");
   const [script, setScript] = useState("");
   const [assetId, setAssetId] = useState("");
+  const [characterId, setCharacterId] = useState("");
   const [duration, setDuration] = useState("5");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -43,12 +45,13 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, selected
     try {
       const scene = await apiRequest<Scene>(`/projects/${projectId}/scenes/`, {
         method: "POST",
-        body: JSON.stringify({ kind, title, script_text: script, config }),
+        body: JSON.stringify({ kind, title, script_text: script, config, ...(characterId !== "" ? { character_id: Number(characterId) } : {}) }),
       });
       onAdded(scene);
       setTitle("");
       setScript("");
       setAssetId("");
+      setCharacterId("");
       setDuration("5");
     } catch (caught) {
       setError(caught);
@@ -76,7 +79,10 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, selected
               >
                 <span className="text-xs text-faint">#{index + 1}</span>
                 <span className="block truncate text-sm font-medium">{scene.title}</span>
-                <span className="text-xs text-muted">{scene.kind}</span>
+                <span className="truncate text-xs text-muted">
+                  {scene.kind}
+                  {scene.character_id ? ` · ${characters.find((c) => c.id === scene.character_id)?.name ?? "character"}` : ""}
+                </span>
               </button>
             </li>
           ))}
@@ -102,6 +108,19 @@ export function SceneList({ projectId, scenes, assets, canWrite = true, selected
             Script
             <textarea className="input min-h-20" value={script} onChange={(e) => setScript(e.target.value)} />
           </label>
+          {characters.length > 0 && (
+            <label className="field-label sm:col-span-2">
+              Character
+              <select className="input" value={characterId} onChange={(e) => setCharacterId(e.target.value)}>
+                <option value="">None</option>
+                {characters.map((character) => (
+                  <option key={character.id} value={character.id}>
+                    {character.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {needsAsset && (
             <label className="field-label">
               Media asset

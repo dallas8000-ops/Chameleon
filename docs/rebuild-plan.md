@@ -20,10 +20,10 @@ Goal: build Episode 1 of the "Muzungu? I'm Black!" series by hand from its scrip
 
 Delivered as three PRs, in this order:
 
-1. **Characters, asset previews and scene editing** (in progress)
-   - [ ] Character library: name, role, face prompt, negative prompt, voice notes, master reference image; Characters page; assign a character to a scene.
-   - [ ] Authorized asset content endpoint (workspace members only) used for thumbnails and a real preview frame.
-   - [ ] Scene reorder, delete and edit.
+1. **Characters, asset previews and scene editing** (built, awaiting review)
+   - [x] Character library: name, role, face prompt, negative prompt, voice notes, master reference image; Characters page; assign a character to a scene.
+   - [x] Authorized asset content endpoint (workspace members only) used for thumbnails and a real preview frame (images; video playback comes later).
+   - [x] Scene delete, edit (title, text, character) and reorder (move earlier or later).
 2. **Script import**
    - [ ] Paste a series script, preview episodes and scenes, then create one project per episode (or the whole season). Deterministic parser, no AI. Dialogue speakers map to characters. Warn above the 20-scene export limit.
 3. **Export features**

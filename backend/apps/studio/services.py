@@ -11,7 +11,7 @@ from django.db import transaction
 from django.db.models import Max
 
 from apps.accounts.models import WorkspaceMembership
-from apps.studio.models import Asset, CaptionTrack, Project, Scene
+from apps.studio.models import Asset, CaptionTrack, Character, Project, Scene
 
 WRITE_ROLES = {WorkspaceMembership.Role.OWNER, WorkspaceMembership.Role.EDITOR}
 
@@ -84,6 +84,7 @@ class SceneService:
             title=data["title"],
             script_text=data.get("script_text", ""),
             config=data.get("config", {}),
+            character_id=data.get("character_id"),
             order_index=0,
         )
         scene.save()
@@ -96,7 +97,7 @@ class SceneService:
     @transaction.atomic
     def update(scene: Scene, data: dict) -> Scene:
         Project.objects.select_for_update().get(pk=scene.project_id)
-        for field in ("kind", "title", "script_text", "config"):
+        for field in ("kind", "title", "script_text", "config", "character_id"):
             if field in data:
                 setattr(scene, field, data[field])
         scene.save()
@@ -107,12 +108,38 @@ class SceneService:
         return scene
 
     @staticmethod
+    @transaction.atomic
+    def delete(scene: Scene) -> None:
+        Project.objects.select_for_update().get(pk=scene.project_id)
+        project_id = scene.project_id
+        scene.delete()
+        for index, item in enumerate(Scene.objects.filter(project_id=project_id).order_by("order_index", "id")):
+            if item.order_index != index:
+                Scene.objects.filter(pk=item.pk).update(order_index=index)
+
+    @staticmethod
     def _renumber(siblings: list[Scene], scene: Scene, position: int) -> None:
         ordered = [s for s in siblings if s.pk != scene.pk]
         ordered.insert(position, scene)
         for index, item in enumerate(ordered):
             if item.order_index != index:
                 Scene.objects.filter(pk=item.pk).update(order_index=index)
+
+
+class CharacterService:
+    @staticmethod
+    def visible_to(user):
+        return Character.objects.filter(workspace__memberships__user=user)
+
+    @staticmethod
+    def in_workspace(workspace_id: int, character_id: int | None) -> bool:
+        return character_id is None or Character.objects.filter(pk=character_id, workspace_id=workspace_id).exists()
+
+    @staticmethod
+    def reference_is_valid(workspace_id: int, asset_id: int | None) -> bool:
+        return asset_id is None or Asset.objects.filter(
+            pk=asset_id, workspace_id=workspace_id, asset_type=Asset.AssetType.IMAGE,
+        ).exists()
 
 
 class AssetService:

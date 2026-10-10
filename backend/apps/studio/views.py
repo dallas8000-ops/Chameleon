@@ -13,20 +13,23 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import WorkspaceMembership
 from apps.accounts.views import error_response
-from apps.studio.models import Asset, CaptionTrack, Export, Project
+from apps.studio.models import Asset, CaptionTrack, Character, Export, Project
 from apps.studio.serializers import (
     AssetSerializer,
     AssetUploadSerializer,
     CaptionCreateSerializer,
     CaptionSerializer,
     CaptionUpdateSerializer,
+    CharacterCreateSerializer,
+    CharacterSerializer,
+    CharacterWriteSerializer,
     ProjectCreateSerializer,
     ProjectDetailSerializer,
     ProjectSerializer,
     SceneSerializer,
     SceneWriteSerializer,
 )
-from apps.studio.services import AssetRejected, AssetService, ProjectService, SceneService
+from apps.studio.services import AssetRejected, AssetService, CharacterService, ProjectService, SceneService
 from apps.studio.upload_handlers import StudioUploadSizeLimitHandler
 
 logger = logging.getLogger(__name__)
@@ -176,6 +179,13 @@ class ProjectDetailView(StudioView):
         return Response(ProjectDetailSerializer(project).data)
 
 
+def unknown_character() -> Response:
+    return error_response(
+        code="validation_error", message="Invalid request.",
+        errors={"character_id": ["Character not found in this workspace."]}, status_code=400,
+    )
+
+
 class SceneCreateView(StudioView):
     def post(self, request, project_id):
         project = ProjectService.visible_to(request.user).filter(id=project_id).first()
@@ -186,6 +196,8 @@ class SceneCreateView(StudioView):
         serializer = SceneWriteSerializer(data=request.data)
         if not serializer.is_valid():
             return invalid(serializer)
+        if not CharacterService.in_workspace(project.workspace_id, serializer.validated_data.get("character_id")):
+            return unknown_character()
         scene = SceneService.create(project, serializer.validated_data)
         return Response(SceneSerializer(scene).data, status=status.HTTP_201_CREATED)
 
@@ -200,6 +212,8 @@ class SceneDetailView(StudioView):
         serializer = SceneWriteSerializer(data=request.data, partial=True)
         if not serializer.is_valid():
             return invalid(serializer)
+        if not CharacterService.in_workspace(scene.project.workspace_id, serializer.validated_data.get("character_id")):
+            return unknown_character()
         scene = SceneService.update(scene, serializer.validated_data)
         return Response(SceneSerializer(scene).data)
 
@@ -208,6 +222,98 @@ class SceneDetailView(StudioView):
         if scene is None:
             return not_found()
         return Response(SceneSerializer(scene).data)
+
+    def delete(self, request, scene_id):
+        scene = ProjectService.get_scene(request.user, scene_id)
+        if scene is None:
+            return not_found()
+        if not ProjectService.can_write(request.user, scene.project.workspace_id):
+            return read_only()
+        SceneService.delete(scene)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def invalid_reference() -> Response:
+    return error_response(
+        code="validation_error", message="Invalid request.",
+        errors={"reference_asset_id": ["Choose an image from this workspace."]}, status_code=400,
+    )
+
+
+class CharacterListCreateView(StudioView):
+    def get(self, request):
+        characters = CharacterService.visible_to(request.user)
+        workspace_id = request.query_params.get("workspace_id")
+        if workspace_id is not None:
+            if not workspace_id.isdigit():
+                return error_response(
+                    code="validation_error", message="Invalid request.",
+                    errors={"workspace_id": ["A valid integer is required."]}, status_code=400,
+                )
+            characters = characters.filter(workspace_id=int(workspace_id))
+        return Response(CharacterSerializer(characters, many=True).data)
+
+    def post(self, request):
+        serializer = CharacterCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid(serializer)
+        data = serializer.validated_data
+        if ProjectService.role_in_workspace(request.user, data["workspace_id"]) is None:
+            return not_found()
+        if not ProjectService.can_write(request.user, data["workspace_id"]):
+            return read_only()
+        if not CharacterService.reference_is_valid(data["workspace_id"], data.get("reference_asset_id")):
+            return invalid_reference()
+        try:
+            with transaction.atomic():
+                character = Character.objects.create(**data)
+        except IntegrityError:
+            return error_response(
+                code="validation_error", message="Invalid request.",
+                errors={"name": ["A character with this name already exists."]}, status_code=400,
+            )
+        return Response(CharacterSerializer(character).data, status=status.HTTP_201_CREATED)
+
+
+class CharacterDetailView(StudioView):
+    def get(self, request, character_id):
+        character = CharacterService.visible_to(request.user).filter(id=character_id).first()
+        if character is None:
+            return not_found()
+        return Response(CharacterSerializer(character).data)
+
+    def patch(self, request, character_id):
+        character = CharacterService.visible_to(request.user).filter(id=character_id).first()
+        if character is None:
+            return not_found()
+        if not ProjectService.can_write(request.user, character.workspace_id):
+            return read_only()
+        serializer = CharacterWriteSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return invalid(serializer)
+        data = serializer.validated_data
+        if not CharacterService.reference_is_valid(character.workspace_id, data.get("reference_asset_id")):
+            return invalid_reference()
+        for field, value in data.items():
+            setattr(character, field, value)
+        try:
+            with transaction.atomic():
+                character.save()
+        except IntegrityError:
+            return error_response(
+                code="validation_error", message="Invalid request.",
+                errors={"name": ["A character with this name already exists."]}, status_code=400,
+            )
+        return Response(CharacterSerializer(character).data)
+
+    def delete(self, request, character_id):
+        character = CharacterService.visible_to(request.user).filter(id=character_id).first()
+        if character is None:
+            return not_found()
+        if not ProjectService.can_write(request.user, character.workspace_id):
+            return read_only()
+        character.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CaptionCreateView(StudioView):
@@ -310,3 +416,30 @@ class AssetDetailView(StudioView):
         if asset is None:
             return not_found()
         return Response(AssetSerializer(asset).data)
+
+
+class AssetContentView(StudioView):
+    """Streams a private asset to members of its workspace only."""
+
+    def get(self, request, asset_id):
+        asset = AssetService.visible_to(request.user).filter(id=asset_id).first()
+        if asset is None:
+            return not_found()
+        if not re.fullmatch(
+            rf"workspaces/{asset.workspace_id}/assets/[A-Za-z0-9_-]+\.(png|jpg|gif|webp|mp4|webm)", asset.storage_key,
+        ):
+            logger.error("Invalid private asset key for asset %s.", asset.id)
+            return error_response(
+                code="asset_storage_failed", message="The asset is unavailable.", errors=None, status_code=503,
+            )
+        try:
+            stored = default_storage.open(asset.storage_key, "rb")
+        except OSError:
+            logger.exception("Private asset read failed for asset %s.", asset.id)
+            return error_response(
+                code="asset_storage_failed", message="The asset is unavailable.", errors=None, status_code=503,
+            )
+        response = FileResponse(stored, content_type=asset.content_type)
+        response["Content-Disposition"] = "inline"
+        response["Cache-Control"] = "private, max-age=60"
+        return response

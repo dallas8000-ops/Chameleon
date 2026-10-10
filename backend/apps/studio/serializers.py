@@ -6,7 +6,7 @@ from numbers import Real
 
 from rest_framework import serializers
 
-from apps.studio.models import Asset, CaptionTrack, Project, Scene
+from apps.studio.models import Asset, CaptionTrack, Character, Project, Scene
 
 MAX_JSON_BYTES = 10_000
 MAX_SEGMENTS = 2000
@@ -28,9 +28,11 @@ class ProjectCreateSerializer(serializers.Serializer):
 
 
 class SceneSerializer(serializers.ModelSerializer):
+    character_id = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = Scene
-        fields = ["id", "project_id", "order_index", "kind", "title", "script_text", "config"]
+        fields = ["id", "project_id", "order_index", "kind", "title", "script_text", "config", "character_id"]
         read_only_fields = fields
 
 
@@ -40,9 +42,43 @@ class SceneWriteSerializer(serializers.Serializer):
     script_text = serializers.CharField(allow_blank=True, max_length=20000, required=False)
     config = serializers.JSONField(required=False)
     order_index = serializers.IntegerField(min_value=0, required=False)
+    character_id = serializers.IntegerField(min_value=1, allow_null=True, required=False)
 
     def validate_config(self, value):
         return validate_json_object(value, field="config")
+
+
+class CharacterSerializer(serializers.ModelSerializer):
+    workspace_id = serializers.IntegerField(read_only=True)
+    reference_asset_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Character
+        fields = [
+            "id", "workspace_id", "name", "role", "description", "face_prompt", "negative_prompt",
+            "voice_notes", "reference_asset_id", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class CharacterWriteSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=120)
+    role = serializers.CharField(max_length=120, allow_blank=True, required=False)
+    description = serializers.CharField(max_length=5000, allow_blank=True, required=False)
+    face_prompt = serializers.CharField(max_length=5000, allow_blank=True, required=False)
+    negative_prompt = serializers.CharField(max_length=2000, allow_blank=True, required=False)
+    voice_notes = serializers.CharField(max_length=2000, allow_blank=True, required=False)
+    reference_asset_id = serializers.IntegerField(min_value=1, allow_null=True, required=False)
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("This field may not be blank.")
+        return value
+
+
+class CharacterCreateSerializer(CharacterWriteSerializer):
+    workspace_id = serializers.IntegerField(min_value=1)
 
 
 class CaptionSegmentSerializer(serializers.Serializer):

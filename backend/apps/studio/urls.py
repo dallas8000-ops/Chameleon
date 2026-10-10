@@ -1,10 +1,13 @@
 from django.urls import path
 
 from apps.studio.views import (
+    AssetContentView,
     AssetDetailView,
     AssetListCreateView,
     CaptionCreateView,
     CaptionDetailView,
+    CharacterDetailView,
+    CharacterListCreateView,
     ExportCreateView,
     ExportDetailView,
     ExportDownloadView,
@@ -33,4 +36,7 @@ urlpatterns = [
     path("captions/<int:caption_id>/", CaptionDetailView.as_view(), name="caption-detail"),
     path("assets/", AssetListCreateView.as_view(), name="asset-list"),
     path("assets/<int:asset_id>/", AssetDetailView.as_view(), name="asset-detail"),
+    path("assets/<int:asset_id>/content/", AssetContentView.as_view(), name="asset-content"),
+    path("characters/", CharacterListCreateView.as_view(), name="character-list"),
+    path("characters/<int:character_id>/", CharacterDetailView.as_view(), name="character-detail"),
 ]
