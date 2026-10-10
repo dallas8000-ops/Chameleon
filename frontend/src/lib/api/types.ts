@@ -89,6 +89,23 @@ export type CharacterInput = Partial<
   Pick<Character, "name" | "role" | "description" | "face_prompt" | "negative_prompt" | "voice_notes" | "reference_asset_id">
 >;
 
+export type ScriptPreview = {
+  characters: { name: string; role: string; description: string; face_prompt: string; negative_prompt: string; exists: boolean }[];
+  episodes: {
+    number: number;
+    title: string;
+    scene_count: number;
+    over_export_limit: boolean;
+    scenes: { title: string; role: string; speaker: string; character: string | null; text: string }[];
+  }[];
+  warnings: string[];
+};
+
+export type ScriptImportResult = {
+  projects: { id: number; title: string; scene_count: number }[];
+  characters_created: string[];
+};
+
 export type CaptionSegment = { start: number; end: number; text: string };
 
 export type CaptionTrack = {

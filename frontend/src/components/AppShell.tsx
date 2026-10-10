@@ -43,6 +43,9 @@ export function AppShell({ children, wide = false, projectId }: AppShellProps) {
           <NavLink to="/app/characters" className={navClass}>
             Characters
           </NavLink>
+          <NavLink to="/app/import" className={navClass}>
+            Import script
+          </NavLink>
           {projectId !== undefined && (
             <>
               <NavLink to={`/app/projects/${projectId}/studio`} className={navClass}>
@@ -82,6 +85,9 @@ export function AppShell({ children, wide = false, projectId }: AppShellProps) {
           <NavLink to="/app/characters" className={navClass}>
             Characters
           </NavLink>
+                  <NavLink to="/app/import" className={navClass}>
+                    Import script
+                  </NavLink>
           {projectId !== undefined && (
             <>
               <NavLink to={`/app/projects/${projectId}/studio`} className={navClass}>

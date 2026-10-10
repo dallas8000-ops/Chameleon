@@ -15,10 +15,12 @@ from apps.studio.views import (
     ProjectListCreateView,
     SceneCreateView,
     SceneDetailView,
+    ScriptImportView,
 )
 
 urlpatterns = [
     path("projects/", ProjectListCreateView.as_view(), name="project-list"),
+    path("projects/import-script/", ScriptImportView.as_view(), name="script-import"),
     path("projects/<int:project_id>/", ProjectDetailView.as_view(), name="project-detail"),
     path("projects/<int:project_id>/exports/", ExportCreateView.as_view(), name="export-create"),
     path("exports/<int:export_id>/", ExportDetailView.as_view(), name="export-detail"),

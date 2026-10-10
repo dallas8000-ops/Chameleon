@@ -24,8 +24,9 @@ Delivered as three PRs, in this order:
    - [x] Character library: name, role, face prompt, negative prompt, voice notes, master reference image; Characters page; assign a character to a scene.
    - [x] Authorized asset content endpoint (workspace members only) used for thumbnails and a real preview frame (images; video playback comes later).
    - [x] Scene delete, edit (title, text, character) and reorder (move earlier or later).
-2. **Script import**
-   - [ ] Paste a series script, preview episodes and scenes, then create one project per episode (or the whole season). Deterministic parser, no AI. Dialogue speakers map to characters. Warn above the 20-scene export limit.
+2. **Script import** (built, awaiting review)
+   - [x] Paste a series script, preview episodes and scenes, then create one project per episode (or the whole season). Deterministic parser, no AI. Dialogue speakers map to characters. Warn above the 20-scene export limit.
+   - [x] Also reads the character bible and "Character reference:" blocks to create characters with face prompt, outfit, role and negative prompts. Existing characters are never overwritten.
 3. **Export features**
    - [ ] Trim video clips and set image durations.
    - [ ] Timed text overlays (hook, end card) drawn through the subtitle path, with a bundled open-licence font.

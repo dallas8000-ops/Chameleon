@@ -7,6 +7,7 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { ExportPage } from "../features/exports/ExportPage";
 import { StudioPage } from "../features/studio/StudioPage";
 import { CharactersPage } from "../features/characters/CharactersPage";
+import { ScriptImportPage } from "../features/import/ScriptImportPage";
 import Home from "../pages/Home";
 
 export const appRoutes: RouteObject[] = [
@@ -15,6 +16,7 @@ export const appRoutes: RouteObject[] = [
   { path: "/login", element: <LoginPage /> },
   { path: "/app", element: <DashboardPage /> },
   { path: "/app/characters", element: <CharactersPage /> },
+  { path: "/app/import", element: <ScriptImportPage /> },
   { path: "/app/projects/:id/studio", element: <StudioPage /> },
   { path: "/app/projects/:id/export", element: <ExportPage /> },
 ];
