@@ -22,6 +22,7 @@ class Project(models.Model):
     title = models.CharField(max_length=180)
     format = models.CharField(max_length=16, choices=Format.choices)
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.DRAFT)
+    ai_disclosure = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -74,6 +75,7 @@ class Asset(models.Model):
     class AssetType(models.TextChoices):
         IMAGE = "image", "Image"
         VIDEO = "video", "Video"
+        AUDIO = "audio", "Audio"
 
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="assets")
     created_by = models.ForeignKey(

@@ -21,6 +21,79 @@ def validate_json_object(value, *, field: str):
     return value
 
 
+MAX_OVERLAYS = 5
+MAX_SCENE_SECONDS = 600
+OVERLAY_POSITIONS = ("top", "center", "bottom")
+OVERLAY_SIZES = ("small", "medium", "large")
+
+
+def _number(value, field: str, *, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise serializers.ValidationError({field: ["Must be a number."]})
+    try:
+        number = float(value)
+    except OverflowError:
+        number = math.inf
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise serializers.ValidationError({field: [f"Must be between {minimum:g} and {maximum:g}."]})
+    return number
+
+
+def validate_overlays(value) -> list[dict]:
+    if not isinstance(value, list):
+        raise serializers.ValidationError({"overlays": ["Must be a list."]})
+    if len(value) > MAX_OVERLAYS:
+        raise serializers.ValidationError({"overlays": [f"At most {MAX_OVERLAYS} text overlays per scene."]})
+    cleaned = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise serializers.ValidationError({"overlays": [f"Overlay {index + 1} must be an object."]})
+        unknown = set(raw) - {"text", "start", "end", "position", "size"}
+        if unknown:
+            raise serializers.ValidationError({"overlays": [f"Overlay {index + 1} has unknown fields: {sorted(unknown)}."]})
+        text = raw.get("text")
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 140:
+            raise serializers.ValidationError({"overlays": [f"Overlay {index + 1} text must be 1 to 140 characters."]})
+        start = _number(raw.get("start", 0), "overlays", minimum=0, maximum=MAX_SCENE_SECONDS)
+        end = _number(raw.get("end"), "overlays", minimum=0.1, maximum=MAX_SCENE_SECONDS)
+        if end <= start:
+            raise serializers.ValidationError({"overlays": [f"Overlay {index + 1} must end after it starts."]})
+        position = raw.get("position", "center")
+        size = raw.get("size", "medium")
+        if position not in OVERLAY_POSITIONS or size not in OVERLAY_SIZES:
+            raise serializers.ValidationError({"overlays": [f"Overlay {index + 1} has an unsupported position or size."]})
+        cleaned.append({"text": text.strip(), "start": start, "end": end, "position": position, "size": size})
+    return cleaned
+
+
+def validate_scene_config(value) -> dict:
+    """Validates the render-related keys of a scene config; other keys are kept untouched."""
+    config = dict(validate_json_object(value, field="config"))
+    for key in ("trim_start", "trim_end", "audio_asset_id", "fit_to_audio"):
+        if key in config and config[key] is None:
+            del config[key]
+    if "trim_start" in config:
+        config["trim_start"] = _number(config["trim_start"], "trim_start", minimum=0, maximum=MAX_SCENE_SECONDS)
+    if "trim_end" in config:
+        config["trim_end"] = _number(config["trim_end"], "trim_end", minimum=0.1, maximum=MAX_SCENE_SECONDS)
+        if config["trim_end"] <= config.get("trim_start", 0):
+            raise serializers.ValidationError({"trim_end": ["Must be after the trim start."]})
+    if "audio_asset_id" in config and (
+        isinstance(config["audio_asset_id"], bool) or not isinstance(config["audio_asset_id"], int) or config["audio_asset_id"] < 1
+    ):
+        raise serializers.ValidationError({"audio_asset_id": ["Must be a positive integer."]})
+    for key in ("audio_volume", "clip_volume"):
+        if key in config:
+            config[key] = _number(config[key], key, minimum=0, maximum=2)
+    if "audio_start" in config:
+        config["audio_start"] = _number(config["audio_start"], "audio_start", minimum=0, maximum=MAX_SCENE_SECONDS)
+    if "fit_to_audio" in config and not isinstance(config["fit_to_audio"], bool):
+        raise serializers.ValidationError({"fit_to_audio": ["Must be true or false."]})
+    if "overlays" in config:
+        config["overlays"] = validate_overlays(config["overlays"])
+    return config
+
+
 class ProjectCreateSerializer(serializers.Serializer):
     workspace_id = serializers.IntegerField(min_value=1)
     title = serializers.CharField(max_length=180)
@@ -45,7 +118,7 @@ class SceneWriteSerializer(serializers.Serializer):
     character_id = serializers.IntegerField(min_value=1, allow_null=True, required=False)
 
     def validate_config(self, value):
-        return validate_json_object(value, field="config")
+        return validate_scene_config(value)
 
 
 class CharacterSerializer(serializers.ModelSerializer):
@@ -184,8 +257,24 @@ class ProjectSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Project
-        fields = ["id", "workspace_id", "title", "format", "status", "created_at", "updated_at"]
+        fields = ["id", "workspace_id", "title", "format", "status", "ai_disclosure", "created_at", "updated_at"]
         read_only_fields = fields
+
+
+class ProjectUpdateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=180, required=False)
+    ai_disclosure = serializers.BooleanField(required=False)
+
+    def validate_title(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("This field may not be blank.")
+        return value
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("Provide title or ai_disclosure.")
+        return attrs
 
 
 class ProjectDetailSerializer(ProjectSerializer):

@@ -30,7 +30,10 @@ class ProjectApiTests(StudioFixture):
         self.assertEqual(detail["captions"], [])
         self.assertEqual(
             sorted(detail),
-            ["captions", "created_at", "format", "id", "scenes", "status", "title", "updated_at", "workspace_id"],
+            [
+                "ai_disclosure", "captions", "created_at", "format", "id", "scenes", "status", "title", "updated_at",
+                "workspace_id",
+            ],
         )
 
     def test_scene_update_and_reorder(self) -> None:

@@ -40,7 +40,7 @@ export function AssetPanel({ workspaceId, assets, canWrite, onUploaded }: AssetP
   return (
     <section aria-label="Media assets" className="card">
       <h2 className="panel-title">Media assets</h2>
-      <p className="mt-1 text-sm text-muted">Upload images or videos to use in scenes. Uploads stay private to this workspace.</p>
+      <p className="mt-1 text-sm text-muted">Upload images, videos or voice recordings (WAV, MP3, M4A) to use in scenes. Uploads stay private to this workspace.</p>
       {assets.length === 0 ? <p className="mt-4 rounded-lg border border-dashed border-line p-4 text-center text-sm text-muted">No private assets yet.</p> : null}
       <ul className="mt-4 space-y-2">
         {assets.map((asset) => (
@@ -49,7 +49,7 @@ export function AssetPanel({ workspaceId, assets, canWrite, onUploaded }: AssetP
               <AssetImage assetId={asset.id} className="h-9 w-9 shrink-0 rounded-md border border-line" />
             ) : (
               <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-raised text-xs text-muted">
-                ▶
+                {asset.asset_type === "audio" ? "♪" : "▶"}
               </span>
             )}
             <span className="min-w-0">
@@ -67,7 +67,7 @@ export function AssetPanel({ workspaceId, assets, canWrite, onUploaded }: AssetP
             Upload media
             <input
               type="file"
-              accept="image/*,video/*"
+              accept="image/*,video/*,audio/*,.wav,.mp3,.m4a"
               className="input file:mr-3 file:rounded-md file:border-0 file:bg-raised file:px-3 file:py-1 file:text-sm file:text-ink"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             />

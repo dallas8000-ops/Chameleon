@@ -26,6 +26,7 @@ from apps.studio.serializers import (
     ProjectCreateSerializer,
     ProjectDetailSerializer,
     ProjectSerializer,
+    ProjectUpdateSerializer,
     SceneSerializer,
     SceneWriteSerializer,
     ScriptImportSerializer,
@@ -210,6 +211,20 @@ class ProjectDetailView(StudioView):
         if project is None:
             return not_found()
         return Response(ProjectDetailSerializer(project).data)
+
+    def patch(self, request, project_id):
+        project = ProjectService.visible_to(request.user).filter(id=project_id).first()
+        if project is None:
+            return not_found()
+        if not ProjectService.can_write(request.user, project.workspace_id):
+            return read_only()
+        serializer = ProjectUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid(serializer)
+        for field, value in serializer.validated_data.items():
+            setattr(project, field, value)
+        project.save(update_fields=[*serializer.validated_data, "updated_at"])
+        return Response(ProjectSerializer(project).data)
 
 
 def unknown_character() -> Response:
@@ -459,7 +474,7 @@ class AssetContentView(StudioView):
         if asset is None:
             return not_found()
         if not re.fullmatch(
-            rf"workspaces/{asset.workspace_id}/assets/[A-Za-z0-9_-]+\.(png|jpg|gif|webp|mp4|webm)", asset.storage_key,
+            rf"workspaces/{asset.workspace_id}/assets/[A-Za-z0-9_-]+\.(png|jpg|gif|webp|mp4|webm|mp3|wav|m4a)", asset.storage_key,
         ):
             logger.error("Invalid private asset key for asset %s.", asset.id)
             return error_response(

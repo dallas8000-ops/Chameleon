@@ -6,6 +6,7 @@ from apps.studio.models import Export, Project
 class ExportRequestSerializer(serializers.Serializer):
     format = serializers.ChoiceField(choices=Project.Format.choices, required=False)
     burn_captions = serializers.BooleanField(default=True)
+    burn_ai_label = serializers.BooleanField(default=False)
     caption_track_id = serializers.IntegerField(min_value=1, required=False)
 
     def to_internal_value(self, data):
@@ -14,8 +15,9 @@ class ExportRequestSerializer(serializers.Serializer):
         unknown = set(data) - set(self.fields)
         if unknown:
             raise serializers.ValidationError({key: ["Unknown field."] for key in sorted(unknown)})
-        if "burn_captions" in data and not isinstance(data["burn_captions"], bool):
-            raise serializers.ValidationError({"burn_captions": ["Must be a boolean."]})
+        for flag in ("burn_captions", "burn_ai_label"):
+            if flag in data and not isinstance(data[flag], bool):
+                raise serializers.ValidationError({flag: ["Must be a boolean."]})
         if "caption_track_id" in data and (
             isinstance(data["caption_track_id"], bool) or not isinstance(data["caption_track_id"], int)
         ):

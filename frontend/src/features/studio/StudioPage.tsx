@@ -6,6 +6,7 @@ import { ErrorAlert } from "../../components/ErrorAlert";
 import type { ProjectDetail } from "../../lib/api/types";
 import { useAssets } from "./use-assets";
 import { useCharacters } from "./use-characters";
+import { AiDisclosureToggle } from "./AiDisclosureToggle";
 import { AssetPanel } from "./AssetPanel";
 import { CaptionCreator } from "./CaptionCreator";
 import { CaptionEditor } from "./CaptionEditor";
@@ -47,6 +48,12 @@ export function StudioPage() {
             <span>Format {project.format}</span>
           </p>
           {!canWrite && <p className="mt-1 text-sm text-warn">You have read-only access to this project.</p>}
+          <AiDisclosureToggle
+            projectId={project.id}
+            checked={project.ai_disclosure === true}
+            canWrite={canWrite}
+            onChanged={(value) => update(() => ({ ai_disclosure: value }))}
+          />
         </div>
         <nav aria-label="Project" className="flex items-center gap-2">
           <Link to="/app" className="btn btn-ghost">
@@ -107,6 +114,7 @@ function StudioBody({
             index={index}
             total={project.scenes.length}
             characters={characters.characters}
+            assets={assets.assets}
             canWrite={canWrite}
             onUpdated={(scene) => update((current) => ({ scenes: current.scenes.map((s) => (s.id === scene.id ? scene : s)) }))}
             onMoved={(sceneId, newIndex) => {

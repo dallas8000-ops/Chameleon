@@ -41,6 +41,7 @@ export type Project = {
   title: string;
   format: string;
   status: string;
+  ai_disclosure?: boolean;
   created_at: string;
   updated_at: string;
 };

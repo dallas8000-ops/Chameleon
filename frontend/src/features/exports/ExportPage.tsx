@@ -12,6 +12,8 @@ export function ExportPage() {
   const { sessionStatus, state, canWrite, retry } = useProjectDetail(id);
   const [trackId, setTrackId] = useState("");
   const [burn, setBurn] = useState(true);
+  const [burnLabel, setBurnLabel] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [record, setRecord] = useState<ExportRecord | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -42,6 +44,17 @@ export function ExportPage() {
   const needsTrack = captions.length > 1;
   const scenes = state.project.scenes;
   const missingMedia = scenes.filter((scene) => typeof scene.config.asset_id !== "number");
+  const aiDisclosure = state.project.ai_disclosure === true;
+  const bioLine = "AI-generated character";
+
+  async function copyBio() {
+    try {
+      await navigator.clipboard.writeText(bioLine);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <AppShell projectId={id}>
@@ -79,10 +92,36 @@ export function ExportPage() {
             </Link>
           </section>
         ) : null}
+        {aiDisclosure ? (
+          <section aria-label="Posting checklist" className="card space-y-3 lg:col-span-2">
+            <h2 className="panel-title">Before you post: AI disclosure</h2>
+            <p className="text-sm text-muted">
+              YouTube, TikTok, Instagram and Facebook all require labelling realistic AI-generated people. Unlabelled videos can be
+              removed or lose monetization.
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-sm">
+              <li>Turn on each platform's AI-generated content label when you upload.</li>
+              <li>Add the line below to your bio or description.</li>
+              <li>Only use faces and names you own or have permission to use.</li>
+            </ul>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="rounded-md border border-line bg-canvas px-2 py-1 text-sm">{bioLine}</code>
+              <button type="button" className="btn" onClick={() => void copyBio()}>
+                Copy bio line
+              </button>
+              {copied ? <span role="status" className="text-sm text-brand">Copied.</span> : null}
+            </div>
+          </section>
+        ) : null}
         <section className="card space-y-4" aria-label="Export settings">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 accent-brand" checked={burn} onChange={(event) => setBurn(event.target.checked)} /> Burn in captions
           </label>
+          {aiDisclosure && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-brand" checked={burnLabel} onChange={(event) => setBurnLabel(event.target.checked)} /> Add a small AI-generated label to the video
+            </label>
+          )}
           {needsTrack && (
             <label className="field-label">
               Caption track
@@ -103,7 +142,11 @@ export function ExportPage() {
             onClick={() =>
               void run(`/projects/${encodeURIComponent(id ?? "")}/exports/`, {
                 method: "POST",
-                body: JSON.stringify({ burn_captions: burn, ...(needsTrack ? { caption_track_id: Number(trackId) } : {}) }),
+                body: JSON.stringify({
+                  burn_captions: burn,
+                  ...(aiDisclosure && burnLabel ? { burn_ai_label: true } : {}),
+                  ...(needsTrack ? { caption_track_id: Number(trackId) } : {}),
+                }),
               })
             }
           >

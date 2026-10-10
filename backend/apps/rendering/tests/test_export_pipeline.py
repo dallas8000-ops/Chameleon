@@ -84,7 +84,7 @@ class ExportPipelineTests(StudioFixture):
         self.assertEqual(export.format, "9:16")
         self.assertEqual(export.settings, {
             "width": 1080, "height": 1920, "fps": 30, "video_codec": "libx264",
-            "audio_codec": "aac", "burn_captions": True, "caption_track_id": None,
+            "audio_codec": "aac", "burn_captions": True, "burn_ai_label": False, "caption_track_id": None,
         })
         self.assertEqual(export.manifest["scenes"][0]["duration_seconds"], 5)
         scene.config["duration_seconds"] = 80
