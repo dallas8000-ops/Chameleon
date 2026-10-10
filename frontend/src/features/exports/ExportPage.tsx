@@ -40,6 +40,8 @@ export function ExportPage() {
   }
   const captions = state.project.captions;
   const needsTrack = captions.length > 1;
+  const scenes = state.project.scenes;
+  const missingMedia = scenes.filter((scene) => typeof scene.config.asset_id !== "number");
 
   return (
     <AppShell projectId={id}>
@@ -54,6 +56,29 @@ export function ExportPage() {
       </header>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {scenes.length === 0 || missingMedia.length > 0 ? (
+          <section aria-label="Export readiness" className="card border-warn/40 bg-warn-soft lg:col-span-2">
+            <h2 className="panel-title text-warn">This project is not ready to export</h2>
+            <p className="mt-1 text-sm text-muted">
+              Export assembles uploaded images and videos. Every scene needs one attached, and script-only scenes cannot be
+              rendered yet because media generation is not available.
+            </p>
+            {scenes.length === 0 ? (
+              <p className="mt-2 text-sm">The project has no scenes.</p>
+            ) : (
+              <ul className="mt-2 list-disc pl-5 text-sm">
+                {missingMedia.map((scene) => (
+                  <li key={scene.id}>
+                    Scene {scenes.indexOf(scene) + 1} ({scene.kind}) has no media attached
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Link to={`/app/projects/${id}/studio`} className="btn mt-3">
+              Fix in studio
+            </Link>
+          </section>
+        ) : null}
         <section className="card space-y-4" aria-label="Export settings">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 accent-brand" checked={burn} onChange={(event) => setBurn(event.target.checked)} /> Burn in captions

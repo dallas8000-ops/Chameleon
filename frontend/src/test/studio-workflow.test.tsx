@@ -197,6 +197,14 @@ test("export page loads the project, requires a caption track choice, and sends 
   expect(JSON.parse(String(post.body))).toEqual({ burn_captions: true, caption_track_id: 10 });
 });
 
+test("export page warns about scenes without media before queuing", async () => {
+  installFetch(baseRoutes);
+  renderAt("/app/projects/5/export");
+  expect(await screen.findByText(/not ready to export/i)).toBeTruthy();
+  expect(screen.getByText(/Scene 1 \(script\) has no media attached/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Fix in studio" })).toBeTruthy();
+});
+
 test("export page omits the track when the project has at most one", async () => {
   const { calls } = installFetch({
     ...csrf,
