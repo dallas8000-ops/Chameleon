@@ -5,10 +5,12 @@ import { AppShell } from "../../components/AppShell";
 import { ErrorAlert } from "../../components/ErrorAlert";
 import type { ProjectDetail } from "../../lib/api/types";
 import { useAssets } from "./use-assets";
+import { useCharacters } from "./use-characters";
 import { AssetPanel } from "./AssetPanel";
 import { CaptionCreator } from "./CaptionCreator";
 import { CaptionEditor } from "./CaptionEditor";
 import { GenerationRoadmap } from "./GenerationRoadmap";
+import { SceneDetails } from "./SceneDetails";
 import { SceneList } from "./SceneList";
 import { ScenePreview } from "./ScenePreview";
 import { useProjectDetail } from "./use-project-detail";
@@ -70,6 +72,7 @@ function StudioBody({
   update: ReturnType<typeof useProjectDetail>["update"];
 }) {
   const assets = useAssets(project.workspace_id);
+  const characters = useCharacters(project.workspace_id);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selectedIndex = project.scenes.findIndex((scene) => scene.id === selectedId);
   const index = selectedIndex >= 0 ? selectedIndex : project.scenes.length - 1;
@@ -80,6 +83,7 @@ function StudioBody({
       <div className="space-y-6">
         <AssetPanel workspaceId={project.workspace_id} assets={assets.assets} canWrite={canWrite} onUploaded={assets.add} />
         {assets.error ? <ErrorAlert error={assets.error} onRetry={assets.retry} /> : null}
+        {characters.error ? <ErrorAlert error={characters.error} onRetry={characters.retry} /> : null}
       </div>
       <div className="space-y-6">
         <ScenePreview format={project.format} scene={selected} sceneNumber={index + 1} assets={assets.assets} />
@@ -87,6 +91,7 @@ function StudioBody({
           projectId={project.id}
           scenes={project.scenes}
           assets={assets.assets}
+          characters={characters.characters}
           canWrite={canWrite}
           selectedId={selected?.id ?? null}
           onSelect={setSelectedId}
@@ -95,6 +100,33 @@ function StudioBody({
             setSelectedId(scene.id);
           }}
         />
+        {selected ? (
+          <SceneDetails
+            key={selected.id}
+            scene={selected}
+            index={index}
+            total={project.scenes.length}
+            characters={characters.characters}
+            canWrite={canWrite}
+            onUpdated={(scene) => update((current) => ({ scenes: current.scenes.map((s) => (s.id === scene.id ? scene : s)) }))}
+            onMoved={(sceneId, newIndex) => {
+              setSelectedId(sceneId);
+              update((current) => {
+                const moving = current.scenes.find((s) => s.id === sceneId);
+                if (!moving) {
+                  return {};
+                }
+                const reordered = current.scenes.filter((s) => s.id !== sceneId);
+                reordered.splice(newIndex, 0, moving);
+                return { scenes: reordered.map((s, order) => ({ ...s, order_index: order })) };
+              });
+            }}
+            onDeleted={(sceneId) => {
+              update((current) => ({ scenes: current.scenes.filter((s) => s.id !== sceneId).map((s, order) => ({ ...s, order_index: order })) }));
+              setSelectedId(null);
+            }}
+          />
+        ) : null}
       </div>
       <div className="space-y-6">
         {project.captions.map((caption) => (

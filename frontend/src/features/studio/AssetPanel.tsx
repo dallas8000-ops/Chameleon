@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 
+import { AssetImage } from "../../components/AssetImage";
 import { ErrorAlert } from "../../components/ErrorAlert";
 import { apiRequest } from "../../lib/api/client";
 import type { Asset } from "../../lib/api/types";
@@ -44,9 +45,13 @@ export function AssetPanel({ workspaceId, assets, canWrite, onUploaded }: AssetP
       <ul className="mt-4 space-y-2">
         {assets.map((asset) => (
           <li key={asset.id} className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2">
-            <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-raised text-xs text-muted">
-              {asset.asset_type === "video" ? "▶" : "▢"}
-            </span>
+            {asset.asset_type === "image" ? (
+              <AssetImage assetId={asset.id} className="h-9 w-9 shrink-0 rounded-md border border-line" />
+            ) : (
+              <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-raised text-xs text-muted">
+                ▶
+              </span>
+            )}
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{asset.name}</span>
               <span className="block text-xs text-muted">

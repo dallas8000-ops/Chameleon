@@ -4,15 +4,39 @@ Goal: one app that does what HeyGen and Magic Hour do together, without using ei
 better design and better performance. Generation runs on open-source models on a serverless GPU
 service (RunPod or Modal). Railway has no GPUs, so the backend calls the GPU worker over an API.
 
-## Phase 1: Clean-out and design foundation (in progress)
+## Phase 1: Clean-out and design foundation (done, merged in PR #2)
 
 - [x] Remove Magic Hour and the provider-shaped job pipeline (`jobs` and `providers` apps, webhook, quoting, usage ledger). A migration drops the old tables.
 - [x] Remove the competitor research and the old specs and plans.
 - [x] Tailwind design tokens, dark theme and a layout shell (sidebar, top bar, responsive grid).
 - [x] Rebuild the landing page, auth screens, dashboard and studio (scene preview frame, scene timeline, asset library, captions, export). The studio's "Generate media" panel says plainly that generation is not available yet.
-- Done when the new UI has been seen live in the browser and approved (awaiting approval).
+- Done: the new UI was reviewed live in the browser and approved.
 
 Kept: accounts and workspaces, projects and scenes, uploads, captions, FFmpeg export, Railway setup.
+
+## Phase 1b: Script-to-timeline tools (approved 2026-10-10, no GPU needed)
+
+Goal: build Episode 1 of the "Muzungu? I'm Black!" series by hand from its script and shot list, using uploaded media. Nothing here generates media.
+
+Delivered as three PRs, in this order:
+
+1. **Characters, asset previews and scene editing** (built, awaiting review)
+   - [x] Character library: name, role, face prompt, negative prompt, voice notes, master reference image; Characters page; assign a character to a scene.
+   - [x] Authorized asset content endpoint (workspace members only) used for thumbnails and a real preview frame (images; video playback comes later).
+   - [x] Scene delete, edit (title, text, character) and reorder (move earlier or later).
+2. **Script import**
+   - [ ] Paste a series script, preview episodes and scenes, then create one project per episode (or the whole season). Deterministic parser, no AI. Dialogue speakers map to characters. Warn above the 20-scene export limit.
+3. **Export features**
+   - [ ] Trim video clips and set image durations.
+   - [ ] Timed text overlays (hook, end card) drawn through the subtitle path, with a bundled open-licence font.
+   - [ ] Audio assets and a voice track per scene, mixed with the clip's own sound.
+   - [ ] AI-generated-people project setting, export checklist and copy-ready bio text.
+
+Acceptance test: the 9-shot Episode 1 list built in the UI with stand-in clips and exported. Checks: 1080x1920 H.264 + AAC, total length equals the sum of trimmed shots, hook text and end card visible in pulled frames, a voice track audible over shot 6, and a second user cannot read any of it. Each PR is also walked through live in the browser before merging.
+
+Not in 1b: text-to-image, voices, talking presenters, image-to-video, a project-wide sound bed and colour filter (Phases 3 and 4).
+
+Private character test images live in `local-fixtures/` (git-ignored) and are never committed.
 
 ## Phase 2: Inference service
 

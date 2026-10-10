@@ -1,5 +1,6 @@
 import React from "react";
 
+import { AssetImage } from "../../components/AssetImage";
 import type { Asset, ProjectFormat, Scene } from "../../lib/api/types";
 
 type ScenePreviewProps = {
@@ -13,7 +14,8 @@ type ScenePreviewProps = {
 export function ScenePreview({ format, scene, sceneNumber, assets }: ScenePreviewProps) {
   const portrait = (format as ProjectFormat) === "9:16";
   const assetId = scene && typeof scene.config.asset_id === "number" ? scene.config.asset_id : null;
-  const hasAsset = assetId !== null && assets.some((asset) => asset.id === assetId);
+  const asset = assetId !== null ? assets.find((item) => item.id === assetId) : undefined;
+  const hasAsset = asset !== undefined;
   const duration = scene && typeof scene.config.duration_seconds === "number" ? scene.config.duration_seconds : null;
 
   return (
@@ -28,8 +30,11 @@ export function ScenePreview({ format, scene, sceneNumber, assets }: ScenePrevie
         }`}
         style={{ backgroundImage: "linear-gradient(160deg, rgb(52 211 153 / 0.08), transparent 55%, rgb(167 139 250 / 0.1))" }}
       >
+        {asset && asset.asset_type === "image" ? (
+          <AssetImage assetId={asset.id} className="absolute inset-0 h-full w-full" />
+        ) : null}
         {scene ? (
-          <div className="max-w-[85%] text-center">
+          <div className={`relative max-w-[85%] text-center ${asset?.asset_type === "image" ? "rounded-lg bg-canvas/70 p-3 backdrop-blur-sm" : ""}`}>
             <p className="text-xs uppercase tracking-widest text-faint">
               Scene {sceneNumber} · {scene.kind}
             </p>

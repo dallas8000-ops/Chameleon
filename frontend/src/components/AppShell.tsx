@@ -40,6 +40,9 @@ export function AppShell({ children, wide = false, projectId }: AppShellProps) {
           <NavLink to="/app" end className={navClass}>
             Projects
           </NavLink>
+          <NavLink to="/app/characters" className={navClass}>
+            Characters
+          </NavLink>
           {projectId !== undefined && (
             <>
               <NavLink to={`/app/projects/${projectId}/studio`} className={navClass}>
@@ -72,6 +75,24 @@ export function AppShell({ children, wide = false, projectId }: AppShellProps) {
             </button>
           </div>
         </header>
+        <nav aria-label="Main (narrow screens)" className="flex gap-1 overflow-x-auto border-b border-line bg-surface/40 px-4 py-2 md:hidden sm:px-6">
+          <NavLink to="/app" end className={navClass}>
+            Projects
+          </NavLink>
+          <NavLink to="/app/characters" className={navClass}>
+            Characters
+          </NavLink>
+          {projectId !== undefined && (
+            <>
+              <NavLink to={`/app/projects/${projectId}/studio`} className={navClass}>
+                Studio
+              </NavLink>
+              <NavLink to={`/app/projects/${projectId}/export`} className={navClass}>
+                Export
+              </NavLink>
+            </>
+          )}
+        </nav>
         <main className={`mx-auto w-full flex-1 px-4 py-6 sm:px-6 sm:py-8 ${wide ? "max-w-[96rem]" : "max-w-5xl"}`}>{children}</main>
       </div>
     </div>

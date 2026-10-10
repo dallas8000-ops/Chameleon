@@ -32,6 +32,7 @@ const baseRoutes = {
   ...csrf,
   "GET /api/projects/5/": json(project),
   "GET /api/assets/?workspace_id=11": json([photo]),
+  "GET /api/characters/?workspace_id=11": json([]),
 };
 const exportRecord = { id: 3, project_id: 5, status: "queued", format: "9:16", settings: {}, error_code: "", error_message: "", video_available: false, subtitles_available: false, created_at: "", updated_at: "" };
 
