@@ -1,0 +1,30 @@
+"""Routes a RunPod job to the capability it asks for. Phase 3 registers the real models here."""
+from __future__ import annotations
+
+from chameleon_worker import diagnostic
+from chameleon_worker.upload import UploadError, upload_result
+
+
+def _run_diagnostic(job: dict) -> dict:
+    summary, image = diagnostic.run()
+    upload_result(job.get("upload"), job.get("job_id"), image, "image/png")
+    return {"result": summary}
+
+
+CAPABILITIES = {"diagnostic": _run_diagnostic}
+
+
+def handle(event: dict) -> dict:
+    """RunPod handler. Returns {"error": ...} for failures so the backend can show a clear message."""
+    job = event.get("input") if isinstance(event, dict) else None
+    if not isinstance(job, dict):
+        return {"error": "The job input was missing or malformed."}
+    runner = CAPABILITIES.get(job.get("capability"))
+    if runner is None:
+        return {"error": f"This worker does not support the capability {str(job.get('capability'))[:60]!r}."}
+    try:
+        return runner(job)
+    except UploadError as error:
+        return {"error": str(error)}
+    except Exception as error:  # noqa: BLE001 - the GPU service must always get a readable failure
+        return {"error": f"{type(error).__name__}: {str(error)[:200]}"}

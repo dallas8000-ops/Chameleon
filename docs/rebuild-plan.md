@@ -39,12 +39,22 @@ Not in 1b: text-to-image, voices, talking presenters, image-to-video, a project-
 
 Private character test images live in `local-fixtures/` (git-ignored) and are never committed.
 
-## Phase 2: Inference service
+## Phase 2: Inference service (in progress)
 
-- Separate GPU worker on RunPod or Modal, called only from the backend. Keys only in Railway environment variables.
-- New `generation` app: job queue with progress, retries, cost per run and honest failure states.
-- Generated files saved to private storage, then added to the project as scenes.
-- Done when a test job round-trips from the studio to the GPU and back.
+Design decisions:
+- **RunPod Serverless, one endpoint, one worker image** (`worker/`). The worker routes on `input.capability`. Endpoints scale to zero, so idle time costs nothing.
+- **Django `generation` app** owns jobs. A job is submitted to RunPod by a Celery task, polled until it ends, and its status, run time and queue delay are recorded so credit use is visible.
+- **Results come back by upload, not through RunPod's response.** RunPod caps response size (about 10 MB), and clips are bigger. The backend gives the worker a one-time, signed, expiring upload URL for that job. The worker PUTs the file to it, Django sniffs the type, stores it privately and adds it to the library as an asset marked as generated. No separate object storage is needed.
+- **Credit protection:** a cap on active jobs per workspace, execution and queue time limits sent with every job, and a clear "not configured" state when keys are missing. Nothing is ever faked.
+- **Secrets** only in Railway environment variables: `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, `GENERATION_PUBLIC_URL`.
+- **Phase 2 ships one capability, `diagnostic`:** the worker reports the GPU model and memory and returns a test image through the full path. It proves the round trip before any real model is added.
+- **Model licences:** every Phase 3 model is checked for commercial-use terms and recorded in `docs/models.md` before it is used.
+
+Build order: (a) backend app, API, tasks, signed upload, tests; (b) worker image and handler, tested locally against a fake backend; (c) studio panel and deployment checks; (d) RunPod setup guide.
+
+Untested until credits exist (smoke test list): the worker image on a real RunPod GPU, RunPod's real response shapes, cold-start time, and the upload from RunPod to Railway.
+
+Done when a diagnostic job round-trips from the studio to the GPU and back.
 
 ## Phase 3: Generation features (each tested end to end before the next)
 
