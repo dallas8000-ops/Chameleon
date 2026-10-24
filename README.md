@@ -59,6 +59,18 @@ Open http://127.0.0.1:5173. Exports also need FFmpeg on PATH and a Celery worker
 (`python -m celery -A chameleon worker --pool=solo -l info`) plus one Beat scheduler
 (`python -m celery -A chameleon beat -l info`), both run from `backend/` with the same environment.
 
+### Quick local run (no PostgreSQL or Redis)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\run-local.ps1"
+```
+
+This installs dependencies, starts the API (`run-api.ps1`, settings `chameleon.settings_local`) and the
+Vite server in their own windows, and opens http://127.0.0.1:5173. Data is kept in `.local-data/`
+(SQLite and media), separate from `e2e/.runtime/`, which the browser tests delete. Celery tasks run
+inline, so exports still need FFmpeg on PATH. `find-account.ps1` lists local accounts and projects;
+`find-account.ps1 -Email <address>` sets a new password for one of them.
+
 ## Validation
 
 ```powershell
