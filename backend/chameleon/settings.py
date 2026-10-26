@@ -201,6 +201,8 @@ GENERATION_PUBLIC_URL = os.environ.get("GENERATION_PUBLIC_URL", "").rstrip("/")
 GENERATION_MAX_ACTIVE_JOBS = int(os.environ.get("GENERATION_MAX_ACTIVE_JOBS", 3))
 GENERATION_MAX_RESULT_BYTES = int(os.environ.get("GENERATION_MAX_RESULT_BYTES", 200 * 1024 * 1024))
 GENERATION_JOB_TTL_SECONDS = int(os.environ.get("GENERATION_JOB_TTL_SECONDS", 1800))
+# Without a Celery worker and beat (local mode), reading a job's status runs its next poll instead.
+GENERATION_POLL_ON_READ = os.environ.get("GENERATION_POLL_ON_READ", "") == "1"
 FFMPEG_BINARY = os.environ.get("FFMPEG_BINARY", "ffmpeg")
 FFPROBE_BINARY = os.environ.get("FFPROBE_BINARY", "ffprobe")
 USE_TZ = True

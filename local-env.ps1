@@ -19,3 +19,21 @@ $env:DEBUG = '1'
 $env:CELERY_BROKER_URL = 'memory://'
 $env:ALLOWED_HOSTS = '127.0.0.1,localhost'
 $env:CSRF_TRUSTED_ORIGINS = 'http://127.0.0.1:5173,http://localhost:5173'
+
+# Local GPU worker (run-gpu.ps1). The backend talks to it with the RunPod client, so these reuse the
+# RunPod settings. The shared token is generated once and kept in .local-data, never in the repo.
+$tokenFile = "$dataDir\local-gpu-token.txt"
+if (-not (Test-Path $tokenFile)) {
+    New-Item -ItemType Directory -Force $dataDir | Out-Null
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    [System.BitConverter]::ToString($bytes).Replace('-', '').ToLower() | Set-Content -NoNewline $tokenFile
+}
+$env:LOCAL_GPU_TOKEN = (Get-Content $tokenFile -Raw).Trim()
+$env:LOCAL_GPU_PORT = '8189'
+$env:RUNPOD_API_KEY = $env:LOCAL_GPU_TOKEN
+$env:RUNPOD_ENDPOINT_ID = 'local'
+$env:RUNPOD_API_BASE = "http://127.0.0.1:$($env:LOCAL_GPU_PORT)/v2"
+$env:GENERATION_PUBLIC_URL = 'http://127.0.0.1:8000'
+$env:GENERATION_MAX_ACTIVE_JOBS = '1'
+$env:WORKER_ALLOW_INSECURE_UPLOAD = '1'

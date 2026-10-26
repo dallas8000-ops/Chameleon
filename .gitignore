@@ -6,6 +6,8 @@ db.sqlite3
 
 # Virtual env
 venv/
+.venv/
+.venv-gpu/
 .env
 
 # Node

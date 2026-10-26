@@ -76,8 +76,12 @@ Order the app asks in:
 1. **Basics** (built): title, format, and whether it shows AI-generated people (no default; the user must answer).
 2. **Script** (built): paste the script; the existing deterministic parser splits it into scenes, and one episode's scenes are added to this project (`project_id` on script import; refused if the project already has scenes).
 3. **Characters** (built): created from the script; for each character in this project's scenes the app asks only for what is missing. A reference image is required to continue; voice notes are optional. Unlinked speakers are listed.
-4. **Automatic build:** per scene, generate the image or clip, the voice track and the on-screen text; captions come from the script.
-5. **Review and export:** the export checklist, then the render starts by itself.
+4. **Automatic build** (pictures built): every scene without media gets a picture from `text_to_image` (SDXL), one job at a time, prompted from the character's face prompt, the scene's location and its line. Voice tracks and clips come with the Phase 3 voice and video models.
+5. **Review and export** (built): the AI disclosure checklist must be confirmed, then the render runs and the download appears.
+
+Local GPU: `run-gpu.ps1` runs the worker on this computer's NVIDIA card (this machine reports an RTX 5060 with 8 GB, driver 621.01; the model has not yet run on it) behind a
+RunPod-shaped API on 127.0.0.1, so the backend uses the same client. `run-local.ps1` starts it when `nvidia-smi` exists.
+Models and licences are recorded in `docs/models.md`.
 
 Each step must be complete before the next opens, and progress is saved so a run can be resumed. Any
 project, including ones started in the studio, opens at its first unfinished step from "Continue automatically" on the dashboard.

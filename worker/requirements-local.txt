@@ -1,0 +1,8 @@
+# Local GPU worker (run-gpu.ps1). RTX 50-series (Blackwell) cards need PyTorch built for CUDA 12.8 or newer.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch>=2.7
+diffusers>=0.31
+transformers>=4.44
+accelerate>=0.33
+safetensors>=0.4
+huggingface_hub>=0.24

@@ -15,7 +15,7 @@ from apps.generation.capabilities import CAPABILITIES
 from apps.generation.models import GenerationJob
 from apps.generation.serializers import JobCreateSerializer, JobSerializer
 from apps.generation.services import JobRejected, JobService, ingest_result, upload_token_valid
-from apps.generation.tasks import cancel_provider_job, dispatch, submit_job
+from apps.generation.tasks import advance_on_read, cancel_provider_job, dispatch, submit_job
 from apps.studio.services import ProjectService
 from apps.studio.views import StudioView, invalid, not_found, read_only
 
@@ -79,7 +79,7 @@ class JobDetailView(StudioView):
         job = JobService.visible_to(request.user).filter(pk=job_id).first()
         if job is None:
             return not_found()
-        return Response(JobSerializer(job).data)
+        return Response(JobSerializer(advance_on_read(job)).data)
 
 
 class JobCancelView(StudioView):

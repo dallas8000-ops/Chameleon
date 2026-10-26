@@ -108,6 +108,14 @@ test("a project that already has scenes resumes past the script step", async () 
   expect(screen.getByText(/· 1 scene$/)).toBeTruthy();
 });
 
+function capabilities(configured: boolean) {
+  return {
+    configured,
+    missing: configured ? [] : ["RUNPOD_API_KEY"],
+    capabilities: [{ capability: "text_to_image", label: "Picture", description: "", available: configured }],
+  };
+}
+
 const ada = {
   id: 5, workspace_id: 11, name: "Ada Quinn", role: "Keeper", description: "", face_prompt: "x", negative_prompt: "",
   voice_notes: "", reference_asset_id: null, created_at: "", updated_at: "",
@@ -129,6 +137,7 @@ test("characters step asks only for what is missing, then opens the build step",
     "GET /api/characters/?workspace_id=11": json([ada, bo, { ...ada, id: 9, name: "Not in this video" }]),
     "POST /api/assets/": json({ id: 71, workspace_id: 11, asset_type: "image", name: "ada.png", content_type: "image/png", size_bytes: 1, created_at: "" }, 201),
     "PATCH /api/characters/5/": [json({ ...ada, reference_asset_id: 71 }), json({ ...ada, reference_asset_id: 71, voice_notes: "calm" })],
+    "GET /api/generation/capabilities/?workspace_id=11": json(capabilities(true)),
   });
   const user = userEvent.setup();
   renderAt("/app/auto/31");
@@ -165,6 +174,72 @@ test("shows the server's message when the project cannot be created", async () =
   await user.click(screen.getByLabelText("No"));
   await user.click(screen.getByRole("button", { name: "Continue to script" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Too long.");
+});
+
+const ready = {
+  ...project,
+  scenes: [
+    { id: 1, project_id: 31, order_index: 0, kind: "image", title: "Hook", script_text: "a", config: { asset_id: 80 }, character_id: null },
+    { id: 2, project_id: 31, order_index: 1, kind: "script", title: "Bo line", script_text: "Ferry leaves at noon", config: { speaker: "BO", location: "harbour" }, character_id: 6 },
+  ],
+};
+const job = { id: 501, workspace_id: 11, project_id: 31, scene_id: 2, capability: "text_to_image", label: "Picture", result_asset_id: null, error_code: "", error_message: "", created_at: "", finished_at: null };
+
+test("build makes the missing pictures on the GPU, then export renders the video", async () => {
+  const { calls } = installFetch({
+    ...session("owner"),
+    "GET /api/projects/31/": json(ready),
+    "GET /api/characters/?workspace_id=11": json([bo]),
+    "GET /api/generation/capabilities/?workspace_id=11": json(capabilities(true)),
+    "POST /api/generation/jobs/": json({ ...job, status: "submitted" }, 202),
+    "GET /api/generation/jobs/501/": json({ ...job, status: "completed", result_asset_id: 81 }),
+    "PATCH /api/scenes/2/": json({ ...ready.scenes[1], kind: "image", config: { ...ready.scenes[1].config, asset_id: 81 } }),
+    "POST /api/projects/31/exports/": json({
+      id: 9, project_id: 31, status: "completed", format: "9:16", settings: {}, error_code: "", error_message: "",
+      video_available: true, subtitles_available: false, created_at: "", updated_at: "",
+    }, 201),
+  });
+  const user = userEvent.setup();
+  renderAt("/app/auto/31");
+
+  await user.click(await screen.findByRole("button", { name: "Continue to build" }));
+  expect(await screen.findByRole("heading", { name: "Step 4: Build" })).toBeTruthy();
+  expect(screen.getByText("Needs a picture")).toBeTruthy();
+  await user.click(await screen.findByRole("button", { name: "Make 1 picture" }));
+  const next = await screen.findByRole("button", { name: "Continue to export" }, { timeout: 8000 });
+
+  const create = calls.find((call) => call.method === "POST" && call.url === "/api/generation/jobs/");
+  const body = JSON.parse(String(create?.body));
+  expect(body).toMatchObject({ workspace_id: 11, capability: "text_to_image", project_id: 31, scene_id: 2, params: { size: "portrait" } });
+  expect(body.params.prompt).toMatch(/^x\. harbour\. Ferry leaves at noon\. cinematic/);
+  const patch = calls.find((call) => call.method === "PATCH" && call.url === "/api/scenes/2/");
+  expect(JSON.parse(String(patch?.body))).toEqual({ kind: "image", config: { speaker: "BO", location: "harbour", asset_id: 81 } });
+
+  await user.click(next);
+  expect(await screen.findByRole("heading", { name: "Step 5: Export" })).toBeTruthy();
+  const make = screen.getByRole("button", { name: "Make the video" });
+  expect(make.hasAttribute("disabled")).toBe(true);
+  await user.click(screen.getByLabelText("I will label this video as AI-generated when I post it"));
+  await user.click(make);
+  expect(await screen.findByText("Your video is ready")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Download video" }).getAttribute("href")).toBe("/api/exports/9/video/");
+  const render = calls.find((call) => call.method === "POST" && call.url === "/api/projects/31/exports/");
+  expect(JSON.parse(String(render?.body))).toEqual({ burn_captions: false, burn_ai_label: true });
+}, 15000);
+
+test("build explains plainly when the GPU worker is not connected", async () => {
+  installFetch({
+    ...session("owner"),
+    "GET /api/projects/31/": json(ready),
+    "GET /api/characters/?workspace_id=11": json([bo]),
+    "GET /api/generation/capabilities/?workspace_id=11": json(capabilities(false)),
+  });
+  const user = userEvent.setup();
+  renderAt("/app/auto/31");
+  await user.click(await screen.findByRole("button", { name: "Continue to build" }));
+  expect(await screen.findByText("Picture making is not connected.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Make 1 picture" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("link", { name: "Add my own in the studio" }).getAttribute("href")).toBe("/app/projects/31/studio");
 });
 
 test("viewers cannot start a project", async () => {

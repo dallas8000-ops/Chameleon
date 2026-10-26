@@ -85,6 +85,10 @@ def submit_job(job_id: int) -> None:
 
 
 def schedule_poll(job_id: int, countdown: int) -> None:
+    if settings.GENERATION_POLL_ON_READ:
+        # Inline (eager) Celery has no timer, so the next read of the job runs the poll instead.
+        GenerationJob.objects.filter(pk=job_id).update(next_check_at=timezone.now() + timedelta(seconds=countdown))
+        return
     try:
         poll_job.apply_async(args=[job_id], countdown=countdown)
     except (OperationalError, OSError):
@@ -197,6 +201,23 @@ def cancel_provider_job(provider_job_id: str) -> None:
         runpod.cancel(provider_job_id)
     except runpod.RunPodError:
         logger.warning("Could not cancel GPU job %s; it will stop at its execution limit.", provider_job_id)
+
+
+def advance_on_read(job: GenerationJob) -> GenerationJob:
+    """Local single-process mode: a status read drives the next submit retry or poll that a timer would run."""
+    if not settings.GENERATION_POLL_ON_READ:
+        return job
+    due = job.next_check_at is None or job.next_check_at <= timezone.now()
+    if not due:
+        return job
+    if job.status == Status.QUEUED and not job.provider_job_id:
+        submit_job(job.id)
+    elif job.provider_job_id and (job.status in GenerationJob.ACTIVE_STATUSES or (job.status == Status.COMPLETED and job.execution_ms is None)):
+        poll_job(job.id)
+    else:
+        return job
+    job.refresh_from_db()
+    return job
 
 
 def dispatch(task, job_id: int) -> None:

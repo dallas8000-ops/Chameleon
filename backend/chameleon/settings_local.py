@@ -25,3 +25,5 @@ MEDIA_ROOT = str(_DATA / "media")
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "chameleon-local"}}
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = False
+# Eager Celery cannot wait between polls; the frontend's status reads drive generation jobs instead.
+GENERATION_POLL_ON_READ = True

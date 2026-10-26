@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { AppShell } from "../../components/AppShell";
 import { ErrorAlert } from "../../components/ErrorAlert";
@@ -7,7 +7,9 @@ import { apiRequest } from "../../lib/api/client";
 import type { Project, ProjectDetail, ProjectFormat } from "../../lib/api/types";
 import { useSessionStore } from "../../lib/auth/session-store";
 import { useProjectDetail } from "../studio/use-project-detail";
+import { BuildStep, hasMedia } from "./BuildStep";
 import { CharactersStep } from "./CharactersStep";
+import { ExportStep } from "./ExportStep";
 import { ScriptStep } from "./ScriptStep";
 
 /** The order automatic mode asks for information in. Each step opens only after the one before it. */
@@ -137,24 +139,28 @@ function BasicsStep() {
 }
 
 /** The first step a saved project still needs, so a project started anywhere resumes in the right place. */
-export function nextStep(project: ProjectDetail, charactersConfirmed: boolean): AutoStep {
+export function nextStep(project: ProjectDetail, charactersConfirmed: boolean, buildConfirmed: boolean): AutoStep {
   if (project.scenes.length === 0) {
     return "Script";
   }
   // The characters step always asks once per visit, so missing images and voice notes are seen before building.
-  return charactersConfirmed ? "Build" : "Characters";
+  if (!charactersConfirmed) {
+    return "Characters";
+  }
+  return buildConfirmed && project.scenes.every(hasMedia) ? "Export" : "Build";
 }
 
 /** `/app/auto/:id`: resumes any project at its first unfinished step. */
 export function AutoProjectPage() {
   const { id } = useParams();
-  const { sessionStatus, state, canWrite, retry } = useProjectDetail(id);
+  const { sessionStatus, state, canWrite, retry, update } = useProjectDetail(id);
   const [charactersConfirmed, setCharactersConfirmed] = useState(false);
+  const [buildConfirmed, setBuildConfirmed] = useState(false);
 
   if (sessionStatus === "anonymous") {
     return <Navigate to="/login" replace />;
   }
-  const step = state.status === "ready" ? nextStep(state.project, charactersConfirmed) : null;
+  const step = state.status === "ready" ? nextStep(state.project, charactersConfirmed, buildConfirmed) : null;
   return (
     <AppShell projectId={id}>
       <AutoHeader />
@@ -175,25 +181,17 @@ export function AutoProjectPage() {
             <ScriptStep project={state.project} onDone={retry} />
           ) : step === "Characters" ? (
             <CharactersStep project={state.project} onDone={() => setCharactersConfirmed(true)} />
+          ) : step === "Build" ? (
+            <BuildStep
+              project={state.project}
+              onSceneUpdated={(scene) => update((current) => ({ scenes: current.scenes.map((s) => (s.id === scene.id ? scene : s)) }))}
+              onDone={() => setBuildConfirmed(true)}
+            />
           ) : (
-            <NotBuiltYet project={state.project} step={step ?? "Build"} />
+            <ExportStep project={state.project} />
           )}
         </div>
       ) : null}
     </AppShell>
-  );
-}
-
-function NotBuiltYet({ project, step }: { project: ProjectDetail; step: AutoStep }) {
-  return (
-    <section className="card space-y-3" aria-labelledby="next-step-heading">
-      <h2 id="next-step-heading" className="text-heading">
-        Step {AUTO_STEPS.indexOf(step) + 1}: {step}
-      </h2>
-      <p className="text-muted">This step is not built yet. You can carry on in the studio for now.</p>
-      <Link to={`/app/projects/${project.id}/studio`} className="btn btn-ghost">
-        Open in studio
-      </Link>
-    </section>
   );
 }

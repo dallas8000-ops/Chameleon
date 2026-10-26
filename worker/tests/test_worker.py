@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import patch
@@ -158,6 +159,109 @@ class RouterTests(unittest.TestCase):
         self.assertIn("malformed", handle({"input": "x"})["error"])
         with patch("chameleon_worker.router.diagnostic.run", side_effect=RuntimeError("boom")):
             self.assertEqual(handle({"input": {"capability": "diagnostic"}})["error"], "RuntimeError: boom")
+
+
+class TextToImageParamTests(unittest.TestCase):
+    def test_defaults_and_limits(self):
+        from chameleon_worker.text_to_image import ParamError, check_params
+
+        settings = check_params({"prompt": "  a lighthouse at dusk ", "width": 768, "height": 1344, "seed": 5})
+        self.assertEqual(settings, {"prompt": "a lighthouse at dusk", "negative_prompt": "", "width": 768, "height": 1344, "steps": 30, "seed": 5})
+        self.assertTrue(0 <= check_params({"prompt": "x"})["seed"] < 2**31)
+        for bad in (None, {}, {"prompt": ""}, {"prompt": "x" * 2001}, {"prompt": "x", "width": 500, "height": 500},
+                    {"prompt": "x", "steps": 5}, {"prompt": "x", "steps": True}, {"prompt": "x", "seed": -1}, {"prompt": "x", "negative_prompt": 3}):
+            with self.subTest(bad=bad), self.assertRaises(ParamError):
+                check_params(bad)
+
+    def test_bad_params_come_back_as_a_readable_error_before_any_gpu_work(self):
+        with patch.dict("os.environ", {"WORKER_ALLOW_INSECURE_UPLOAD": "1"}):
+            output = handle({"input": {"capability": "text_to_image", "job_id": 7, "params": {"prompt": ""},
+                                       "upload": {"url": "http://127.0.0.1:9/api/generation/jobs/7/result/", "token": TOKEN}}})
+        self.assertIn("description", output["error"])
+        with patch("chameleon_worker.router.text_to_image.run") as run:
+            output = handle({"input": {"capability": "text_to_image", "job_id": 7, "params": {"prompt": "x"}, "upload": {}}})
+        run.assert_not_called()
+        self.assertIn("upload target", output["error"])
+
+
+class LocalServerTests(unittest.TestCase):
+    TOKEN = "t" * 40
+
+    def setUp(self):
+        from chameleon_worker.local_server import JobQueue, make_server
+
+        self.release = threading.Event()
+
+        def runner(event):
+            self.release.wait(5)
+            return {"result": {"echo": event["input"]["params"]}}
+
+        self.jobs = JobQueue(runner)
+        self.server = make_server(self.TOKEN, 0, self.jobs)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_port}/v2/local"
+
+    def tearDown(self):
+        self.release.set()
+        self.server.shutdown()
+        self.server.server_close()
+
+    def call(self, method, path, body=None, token=None):
+        import urllib.error
+        import urllib.request
+
+        data = json.dumps(body).encode() if body is not None else (b"" if method == "POST" else None)
+        request = urllib.request.Request(self.base + path, data=data, method=method,
+                                         headers={"Authorization": f"Bearer {token or self.TOKEN}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+
+    def wait_for(self, job_id, state):
+        for _ in range(100):
+            status, body = self.call("GET", f"/status/{job_id}")
+            if body.get("status") == state:
+                return body
+            time.sleep(0.05)
+        self.fail(f"job never reached {state}: {body}")
+
+    def test_runs_jobs_in_order_with_runpod_shaped_status(self):
+        status, first = self.call("POST", "/run", {"input": {"params": {"n": 1}}, "policy": {}})
+        self.assertEqual((status, first["status"]), (200, "IN_QUEUE"))
+        _, second = self.call("POST", "/run", {"input": {"params": {"n": 2}}})
+        self.wait_for(first["id"], "IN_PROGRESS")
+        self.assertEqual(self.call("GET", f"/status/{second['id']}")[1]["status"], "IN_QUEUE")
+        self.release.set()
+        done = self.wait_for(first["id"], "COMPLETED")
+        self.assertEqual(done["output"], {"result": {"echo": {"n": 1}}})
+        self.assertIsInstance(done["executionTime"], int)
+        self.assertIsInstance(done["delayTime"], int)
+        self.assertEqual(self.wait_for(second["id"], "COMPLETED")["output"]["result"]["echo"], {"n": 2})
+
+    def test_queued_jobs_can_be_canceled(self):
+        _, running = self.call("POST", "/run", {"input": {"params": {}}})
+        _, queued = self.call("POST", "/run", {"input": {"params": {}}})
+        self.wait_for(running["id"], "IN_PROGRESS")
+        self.assertEqual(self.call("POST", f"/cancel/{queued['id']}")[1]["status"], "CANCELLED")
+        self.release.set()
+        self.wait_for(running["id"], "COMPLETED")
+        self.assertEqual(self.call("GET", f"/status/{queued['id']}")[1]["status"], "CANCELLED")
+
+    def test_rejects_bad_tokens_paths_and_bodies(self):
+        self.assertEqual(self.call("POST", "/run", {"input": {}}, token="wrong")[0], 401)
+        self.assertEqual(self.call("GET", "/status/not-a-job")[0], 404)
+        self.assertEqual(self.call("GET", f"/status/{'0' * 8}-0000-0000-0000-{'0' * 12}")[0], 404)
+        self.assertEqual(self.call("GET", "/run")[0], 405)
+        self.assertEqual(self.call("POST", "/run", {"nope": 1})[0], 400)
+        self.assertEqual(self.call("POST", "/run", [1])[0], 400)
+
+    def test_refuses_to_start_with_a_short_token(self):
+        from chameleon_worker.local_server import make_server
+
+        with self.assertRaises(ValueError):
+            make_server("short", 0, self.jobs)
 
 
 if __name__ == "__main__":
