@@ -7,6 +7,7 @@ import { apiRequest } from "../../lib/api/client";
 import type { Project, ProjectDetail, ProjectFormat } from "../../lib/api/types";
 import { useSessionStore } from "../../lib/auth/session-store";
 import { useProjectDetail } from "../studio/use-project-detail";
+import { CharactersStep } from "./CharactersStep";
 import { ScriptStep } from "./ScriptStep";
 
 /** The order automatic mode asks for information in. Each step opens only after the one before it. */
@@ -136,19 +137,24 @@ function BasicsStep() {
 }
 
 /** The first step a saved project still needs, so a project started anywhere resumes in the right place. */
-export function nextStep(project: ProjectDetail): AutoStep {
-  return project.scenes.length === 0 ? "Script" : "Characters";
+export function nextStep(project: ProjectDetail, charactersConfirmed: boolean): AutoStep {
+  if (project.scenes.length === 0) {
+    return "Script";
+  }
+  // The characters step always asks once per visit, so missing images and voice notes are seen before building.
+  return charactersConfirmed ? "Build" : "Characters";
 }
 
 /** `/app/auto/:id`: resumes any project at its first unfinished step. */
 export function AutoProjectPage() {
   const { id } = useParams();
   const { sessionStatus, state, canWrite, retry } = useProjectDetail(id);
+  const [charactersConfirmed, setCharactersConfirmed] = useState(false);
 
   if (sessionStatus === "anonymous") {
     return <Navigate to="/login" replace />;
   }
-  const step = state.status === "ready" ? nextStep(state.project) : null;
+  const step = state.status === "ready" ? nextStep(state.project, charactersConfirmed) : null;
   return (
     <AppShell projectId={id}>
       <AutoHeader />
@@ -167,8 +173,10 @@ export function AutoProjectPage() {
             <p className="card text-warn">You have read-only access to this project.</p>
           ) : step === "Script" ? (
             <ScriptStep project={state.project} onDone={retry} />
+          ) : step === "Characters" ? (
+            <CharactersStep project={state.project} onDone={() => setCharactersConfirmed(true)} />
           ) : (
-            <NotBuiltYet project={state.project} step={step ?? "Characters"} />
+            <NotBuiltYet project={state.project} step={step ?? "Build"} />
           )}
         </div>
       ) : null}

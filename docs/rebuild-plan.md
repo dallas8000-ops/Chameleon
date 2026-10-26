@@ -75,7 +75,7 @@ Order the app asks in:
 
 1. **Basics** (built): title, format, and whether it shows AI-generated people (no default; the user must answer).
 2. **Script** (built): paste the script; the existing deterministic parser splits it into scenes, and one episode's scenes are added to this project (`project_id` on script import; refused if the project already has scenes).
-3. **Characters:** created from the script; the app only asks for what is missing (reference image, voice notes).
+3. **Characters** (built): created from the script; for each character in this project's scenes the app asks only for what is missing. A reference image is required to continue; voice notes are optional. Unlinked speakers are listed.
 4. **Automatic build:** per scene, generate the image or clip, the voice track and the on-screen text; captions come from the script.
 5. **Review and export:** the export checklist, then the render starts by itself.
 
