@@ -98,6 +98,7 @@ class ProjectCreateSerializer(serializers.Serializer):
     workspace_id = serializers.IntegerField(min_value=1)
     title = serializers.CharField(max_length=180)
     format = serializers.ChoiceField(choices=Project.Format.choices)
+    ai_disclosure = serializers.BooleanField(required=False, default=False)
 
 
 class SceneSerializer(serializers.ModelSerializer):
@@ -163,6 +164,8 @@ class ScriptImportSerializer(serializers.Serializer):
     episodes = serializers.ListField(
         child=serializers.IntegerField(min_value=1), required=False, allow_null=True, max_length=30,
     )
+    # Fill this existing, empty project instead of creating new ones (automatic mode).
+    project_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
 
 
 class CaptionSegmentSerializer(serializers.Serializer):

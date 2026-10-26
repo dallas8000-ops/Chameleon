@@ -258,7 +258,11 @@ class ScriptImportService:
 
     @classmethod
     @transaction.atomic
-    def create(cls, workspace_id: int, script: str, project_format: str, episode_numbers, create_characters: bool) -> dict:
+    def create(
+        cls, workspace_id: int, script: str, project_format: str, episode_numbers, create_characters: bool,
+        project_id: int | None = None,
+    ) -> dict:
+        """Creates one project per episode, or fills the existing empty project `project_id` with one episode."""
         episodes, characters, existing, names = cls._plan(workspace_id, script)
         if episode_numbers is not None:
             available = {e.number for e in episodes}
@@ -268,6 +272,13 @@ class ScriptImportService:
             episodes = [e for e in episodes if e.number in set(episode_numbers)]
         if not episodes:
             raise ScriptImportError("Select at least one episode.")
+        target = None
+        if project_id is not None:
+            if len(episodes) != 1:
+                raise ScriptImportError("Choose one episode for this project.")
+            target = Project.objects.select_for_update().get(id=project_id, workspace_id=workspace_id)
+            if target.scenes.exists():
+                raise ScriptImportError("This project already has scenes.")
         ids = {name: character.id for name, character in existing.items()}
         created = []
         if create_characters:
@@ -284,7 +295,7 @@ class ScriptImportService:
                 created.append(character.name)
         projects = []
         for episode in episodes:
-            project = Project.objects.create(
+            project = target or Project.objects.create(
                 workspace_id=workspace_id, title=f"Ep {episode.number}: {episode.title}"[:180], format=project_format,
             )
             scenes = []

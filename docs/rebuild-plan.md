@@ -66,6 +66,25 @@ Done when a diagnostic job round-trips from the studio to the GPU and back.
 | 4 | Image-to-video and text-to-video | Wan 2.x or similar |
 | 5 | Translation and dubbing with lip-sync | Whisper, an LLM, then 2 and 3 |
 
+## Automatic mode (approved 2026-10-25)
+
+Goal: the app asks for what it needs, one step at a time, then builds the video by itself. It sits
+alongside the studio (new route `/app/auto`); the studio stays for hand editing.
+
+Order the app asks in:
+
+1. **Basics** (built): title, format, and whether it shows AI-generated people (no default; the user must answer).
+2. **Script** (built): paste the script; the existing deterministic parser splits it into scenes, and one episode's scenes are added to this project (`project_id` on script import; refused if the project already has scenes).
+3. **Characters:** created from the script; the app only asks for what is missing (reference image, voice notes).
+4. **Automatic build:** per scene, generate the image or clip, the voice track and the on-screen text; captions come from the script.
+5. **Review and export:** the export checklist, then the render starts by itself.
+
+Each step must be complete before the next opens, and progress is saved so a run can be resumed. Any
+project, including ones started in the studio, opens at its first unfinished step from "Continue automatically" on the dashboard.
+
+- The build step reads `/api/generation/capabilities/`. A capability that is not available stops the run at that point with a plain message. Nothing is faked; until Phase 3 models exist the run ends after step 3.
+- A backend run record drives the build with Celery, one generation job per scene and capability, inside the existing per-workspace job cap and time limits.
+
 ## Phase 4: Polish and performance
 
 Streaming previews, caching, lazy loading, mobile layout, accessibility, recorded speed benchmarks and

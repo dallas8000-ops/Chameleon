@@ -100,6 +100,9 @@ export function ProjectList({ workspaceId }: ProjectListProps) {
                   <span className="badge">{project.format}</span>
                   <span>{project.status}</span>
                 </p>
+                <Link className="mt-2 inline-block text-xs" to={`/app/auto/${project.id}`} aria-label={`Continue ${project.title} automatically`}>
+                  Continue automatically
+                </Link>
               </li>
             ))}
           </ul>

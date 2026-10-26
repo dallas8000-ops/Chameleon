@@ -160,12 +160,16 @@ class ScriptImportView(StudioView):
             return not_found()
         if not ProjectService.can_write(request.user, data["workspace_id"]):
             return read_only()
+        project_id = data.get("project_id")
+        if project_id is not None and not Project.objects.filter(id=project_id, workspace_id=data["workspace_id"]).exists():
+            return not_found()
         try:
             if data["dry_run"]:
                 result = ScriptImportService.preview(data["workspace_id"], data["script"])
                 return Response(result)
             result = ScriptImportService.create(
                 data["workspace_id"], data["script"], data["format"], data.get("episodes"), data["create_characters"],
+                project_id=project_id,
             )
         except ScriptImportError as exc:
             return error_response(
@@ -200,7 +204,8 @@ class ProjectListCreateView(StudioView):
         if role not in (WorkspaceMembership.Role.OWNER, WorkspaceMembership.Role.EDITOR):
             return read_only()
         project = Project.objects.create(
-            workspace_id=data["workspace_id"], title=data["title"].strip(), format=data["format"]
+            workspace_id=data["workspace_id"], title=data["title"].strip(), format=data["format"],
+            ai_disclosure=data["ai_disclosure"],
         )
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
 

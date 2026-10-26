@@ -191,6 +191,40 @@ class ImportApiTests(StudioFixture):
         self.assertEqual(Character.objects.count(), 0)
         self.assertFalse(Scene.objects.exclude(character=None).exists())
 
+    def test_import_into_existing_empty_project(self):
+        self.client.force_login(self.editor)
+        before = Project.objects.count()
+        response = self.post(self.url, self.body(dry_run=False, episodes=[1], project_id=self.project.id))
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["projects"][0]["id"], self.project.id)
+        self.assertEqual(Project.objects.count(), before)
+        self.project.refresh_from_db()
+        self.assertNotEqual(self.project.title, "Ep 1: The Light Goes Out")
+        scenes = list(Scene.objects.filter(project=self.project))
+        self.assertTrue(scenes)
+        self.assertEqual([s.order_index for s in scenes], list(range(len(scenes))))
+        self.assertEqual(scenes[1].character.name, "Ada Quinn")
+
+        again = self.post(self.url, self.body(dry_run=False, episodes=[1], project_id=self.project.id))
+        self.assertEqual(again.status_code, 400)
+        self.assertIn("already has scenes", str(again.json()["errors"]))
+        self.assertEqual(Scene.objects.filter(project=self.project).count(), len(scenes))
+
+    def test_import_into_project_needs_one_episode_and_a_visible_project(self):
+        self.client.force_login(self.editor)
+        both = self.post(self.url, self.body(dry_run=False, project_id=self.project.id))
+        self.assertEqual(both.status_code, 400)
+        self.assertIn("one episode", str(both.json()["errors"]))
+        missing = self.post(self.url, self.body(dry_run=False, episodes=[1], project_id=99999))
+        self.assertEqual(missing.status_code, 404)
+        self.client.force_login(self.outsider)
+        foreign = self.post(
+            self.url,
+            {"workspace_id": self.other_workspace.id, "script": SAMPLE, "dry_run": False, "episodes": [1], "project_id": self.project.id},
+        )
+        self.assertEqual(foreign.status_code, 404)
+        self.assertFalse(Scene.objects.filter(project=self.project).exists())
+
     def test_invalid_requests(self):
         self.client.force_login(self.owner)
         self.assertEqual(self.post(self.url, self.body(script="no episodes here")).status_code, 400)
