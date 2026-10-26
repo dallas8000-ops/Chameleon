@@ -71,7 +71,8 @@ def _load():
             if torch.cuda.get_device_properties(0).total_memory < LOW_MEMORY_BYTES:
                 # 8 GB cards (for example an RTX 5060): keep only the active part of the model on the GPU.
                 pipeline.enable_model_cpu_offload()
-                pipeline.enable_vae_tiling()
+                # Newer diffusers moved tiling from the pipeline onto the VAE itself.
+                pipeline.vae.enable_tiling()
             else:
                 pipeline = pipeline.to("cuda")
             _pipeline = pipeline

@@ -3,22 +3,31 @@
 # CUDA 12.8 and downloads the picture model (about 7 GB), so it takes a while.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$python = "$root\.venv-gpu\Scripts\python.exe"
+# Not named $python: local-env.ps1 sets $python to the backend virtualenv, which has no PyTorch.
+$gpuPython = "$root\.venv-gpu\Scripts\python.exe"
 
 if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { throw 'nvidia-smi was not found. Install the NVIDIA driver first.' }
-if (-not (Test-Path $python)) {
+if (-not (Test-Path $gpuPython)) {
     Write-Host 'Creating the GPU virtualenv...'
     py -3.11 -m venv "$root\.venv-gpu"
 }
-Write-Host 'Installing GPU worker dependencies (PyTorch for CUDA 12.8, diffusers)...'
-& $python -m pip install --disable-pip-version-check -r "$root\worker\requirements-local.txt"
+Write-Host 'Updating pip (newer pip resumes interrupted downloads)...'
+& $gpuPython -m pip install --disable-pip-version-check --upgrade pip
+if ($LASTEXITCODE -ne 0) { throw 'pip upgrade failed' }
+Write-Host 'Installing PyTorch for CUDA 12.8 (about 2.75 GB)...'
+# Only from the CUDA index: the PyPI build of torch for Windows is CPU-only. The download is large, so a
+# dropped connection resumes instead of leaving a partial file that fails pip's checksum check.
+& $gpuPython -m pip install --disable-pip-version-check --no-cache-dir --resume-retries 20 torch --index-url https://download.pytorch.org/whl/cu128
+if ($LASTEXITCODE -ne 0) { throw 'PyTorch install failed' }
+Write-Host 'Installing the picture model libraries...'
+& $gpuPython -m pip install --disable-pip-version-check -r "$root\worker\requirements-local.txt"
 if ($LASTEXITCODE -ne 0) { throw 'pip install failed' }
 
 . "$root\local-env.ps1"
 Set-Location "$root\worker"
-& $python -c "import torch,sys; ok=torch.cuda.is_available(); print('CUDA available:', ok, '|', torch.cuda.get_device_name(0) if ok else 'no GPU'); sys.exit(0 if ok else 1)"
+& $gpuPython "$root\worker\check_gpu.py"
 if ($LASTEXITCODE -ne 0) { throw 'PyTorch cannot see the graphics card.' }
-Write-Host 'Making sure the picture model is downloaded...'
-& $python -m chameleon_worker.text_to_image --download
+Write-Host 'Making sure the picture model is downloaded (about 7 GB the first time)...'
+& $gpuPython -m chameleon_worker.text_to_image --download
 if ($LASTEXITCODE -ne 0) { throw 'Model download failed' }
-& $python -m chameleon_worker.local_server
+& $gpuPython -m chameleon_worker.local_server
