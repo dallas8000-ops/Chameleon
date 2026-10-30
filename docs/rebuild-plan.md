@@ -39,12 +39,22 @@ Not in 1b: text-to-image, voices, talking presenters, image-to-video, a project-
 
 Private character test images live in `local-fixtures/` (git-ignored) and are never committed.
 
-## Phase 2: Inference service
+## Phase 2: Inference service (in progress)
 
-- Separate GPU worker on RunPod or Modal, called only from the backend. Keys only in Railway environment variables.
-- New `generation` app: job queue with progress, retries, cost per run and honest failure states.
-- Generated files saved to private storage, then added to the project as scenes.
-- Done when a test job round-trips from the studio to the GPU and back.
+Design decisions:
+- **RunPod Serverless, one endpoint, one worker image** (`worker/`). The worker routes on `input.capability`. Endpoints scale to zero, so idle time costs nothing.
+- **Django `generation` app** owns jobs. A job is submitted to RunPod by a Celery task, polled until it ends, and its status, run time and queue delay are recorded so credit use is visible.
+- **Results come back by upload, not through RunPod's response.** RunPod caps response size (about 10 MB), and clips are bigger. The backend gives the worker a one-time, signed, expiring upload URL for that job. The worker PUTs the file to it, Django sniffs the type, stores it privately and adds it to the library as an asset marked as generated. No separate object storage is needed.
+- **Credit protection:** a cap on active jobs per workspace, execution and queue time limits sent with every job, and a clear "not configured" state when keys are missing. Nothing is ever faked.
+- **Secrets** only in Railway environment variables: `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, `GENERATION_PUBLIC_URL`.
+- **Phase 2 ships one capability, `diagnostic`:** the worker reports the GPU model and memory and returns a test image through the full path. It proves the round trip before any real model is added.
+- **Model licences:** every Phase 3 model is checked for commercial-use terms and recorded in `docs/models.md` before it is used.
+
+Build order: (a) backend app, API, tasks, signed upload, tests; (b) worker image and handler, tested locally against a fake backend; (c) studio panel and deployment checks; (d) RunPod setup guide.
+
+Untested until credits exist (smoke test list): the worker image on a real RunPod GPU, RunPod's real response shapes, cold-start time, and the upload from RunPod to Railway.
+
+Done when a diagnostic job round-trips from the studio to the GPU and back.
 
 ## Phase 3: Generation features (each tested end to end before the next)
 
@@ -55,6 +65,29 @@ Private character test images live in `local-fixtures/` (git-ignored) and are ne
 | 3 | Talking photo and script-to-presenter video | LivePortrait, MuseTalk or SadTalker |
 | 4 | Image-to-video and text-to-video | Wan 2.x or similar |
 | 5 | Translation and dubbing with lip-sync | Whisper, an LLM, then 2 and 3 |
+
+## Automatic mode (approved 2026-10-25)
+
+Goal: the app asks for what it needs, one step at a time, then builds the video by itself. It sits
+alongside the studio (new route `/app/auto`); the studio stays for hand editing.
+
+Order the app asks in:
+
+1. **Basics** (built): title, format, and whether it shows AI-generated people (no default; the user must answer).
+2. **Script** (built): paste the script; the existing deterministic parser splits it into scenes, and one episode's scenes are added to this project (`project_id` on script import; refused if the project already has scenes).
+3. **Characters** (built): created from the script; for each character in this project's scenes the app asks only for what is missing. A reference image is required to continue; voice notes are optional. Unlinked speakers are listed.
+4. **Automatic build** (pictures built): every scene without media gets a picture from `text_to_image` (SDXL), one job at a time, prompted from the character's face prompt, the scene's location and its line. Voice tracks and clips come with the Phase 3 voice and video models.
+5. **Review and export** (built): the AI disclosure checklist must be confirmed, then the render runs and the download appears.
+
+Local GPU: `run-gpu.ps1` runs the worker on this computer's NVIDIA card (this machine reports an RTX 5060 with 8 GB, driver 621.01; the model has not yet run on it) behind a
+RunPod-shaped API on 127.0.0.1, so the backend uses the same client. `run-local.ps1` starts it when `nvidia-smi` exists.
+Models and licences are recorded in `docs/models.md`.
+
+Each step must be complete before the next opens, and progress is saved so a run can be resumed. Any
+project, including ones started in the studio, opens at its first unfinished step from "Continue automatically" on the dashboard.
+
+- The build step reads `/api/generation/capabilities/`. A capability that is not available stops the run at that point with a plain message. Nothing is faked; until Phase 3 models exist the run ends after step 3.
+- A backend run record drives the build with Celery, one generation job per scene and capability, inside the existing per-workspace job cap and time limits.
 
 ## Phase 4: Polish and performance
 

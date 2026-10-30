@@ -468,7 +468,8 @@ class ExportPipelineTests(StudioFixture):
         export = self.create_export()
         self.render(export)
         self.assertEqual(export.error_code, "export_no_source")
-        for _ in range(19):
+        from apps.rendering.services import MAX_SCENES
+        for _ in range(MAX_SCENES - 1):
             self.scene()
         count = Export.objects.count()
         self.assertEqual(self.post(self.url, {}).status_code, 400)

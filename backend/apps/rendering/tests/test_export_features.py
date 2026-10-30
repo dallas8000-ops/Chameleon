@@ -254,7 +254,7 @@ class RenderCommandTests(FakeFfmpegBase):
         self.scene(self.asset("image"), fit_to_audio=True, audio_asset_id=voice.id)
         export = self.create_export()
         self.render(export)
-        self.assertEqual(self.scene_command()[self.scene_command().index("-t") + 1], "8.0")
+        self.assertEqual(self.scene_command()[self.scene_command().index("-t") + 1], "8.8")  # 8 s voice + pause
 
     def test_ai_label_is_burned_only_when_requested(self):
         self.scene(self.asset("image"))
@@ -351,8 +351,8 @@ class RealFfmpegTests(FeatureBase):
         streams = {s["codec_type"]: s for s in probe["streams"]}
         self.assertEqual((streams["video"]["width"], streams["video"]["height"]), (1080, 1920))
         self.assertIn("audio", streams)
-        # 2.5 s trimmed clip + voice (0.5 s delay + 2.5 s) = 6.0 s.
-        self.assertAlmostEqual(float(probe["format"]["duration"]), 2.5 + 3.0, delta=0.3)
+        # 2.5 s trimmed clip + voice (0.5 s delay + 2.5 s) + the pause after the line.
+        self.assertAlmostEqual(float(probe["format"]["duration"]), 2.5 + 3.0 + 0.8, delta=0.3)
 
         # The overlay is really drawn: the same frame differs once the overlay is removed.
         overlay_scene.config = {key: value for key, value in overlay_scene.config.items() if key != "overlays"}

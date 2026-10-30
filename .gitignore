@@ -6,6 +6,9 @@ db.sqlite3
 
 # Virtual env
 venv/
+.venv/
+.venv-gpu/
+.venv-voice/
 .env
 
 # Node
@@ -28,3 +31,5 @@ e2e/.runtime-integration/
 e2e/.runtime-results-integration/
 local-infrastructure-report.md
 local-fixtures/
+.local-data/
+.playwright-mcp/

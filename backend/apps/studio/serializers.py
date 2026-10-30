@@ -98,6 +98,7 @@ class ProjectCreateSerializer(serializers.Serializer):
     workspace_id = serializers.IntegerField(min_value=1)
     title = serializers.CharField(max_length=180)
     format = serializers.ChoiceField(choices=Project.Format.choices)
+    ai_disclosure = serializers.BooleanField(required=False, default=False)
 
 
 class SceneSerializer(serializers.ModelSerializer):
@@ -124,12 +125,13 @@ class SceneWriteSerializer(serializers.Serializer):
 class CharacterSerializer(serializers.ModelSerializer):
     workspace_id = serializers.IntegerField(read_only=True)
     reference_asset_id = serializers.IntegerField(read_only=True)
+    voice_sample_asset_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Character
         fields = [
             "id", "workspace_id", "name", "role", "description", "face_prompt", "negative_prompt",
-            "voice_notes", "reference_asset_id", "created_at", "updated_at",
+            "voice_notes", "reference_asset_id", "voice_sample_asset_id", "created_at", "updated_at",
         ]
         read_only_fields = fields
 
@@ -142,6 +144,7 @@ class CharacterWriteSerializer(serializers.Serializer):
     negative_prompt = serializers.CharField(max_length=2000, allow_blank=True, required=False)
     voice_notes = serializers.CharField(max_length=2000, allow_blank=True, required=False)
     reference_asset_id = serializers.IntegerField(min_value=1, allow_null=True, required=False)
+    voice_sample_asset_id = serializers.IntegerField(min_value=1, allow_null=True, required=False)
 
     def validate_name(self, value):
         value = value.strip()
@@ -163,6 +166,8 @@ class ScriptImportSerializer(serializers.Serializer):
     episodes = serializers.ListField(
         child=serializers.IntegerField(min_value=1), required=False, allow_null=True, max_length=30,
     )
+    # Fill this existing, empty project instead of creating new ones (automatic mode).
+    project_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
 
 
 class CaptionSegmentSerializer(serializers.Serializer):
