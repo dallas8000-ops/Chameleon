@@ -183,6 +183,56 @@ class TextToImageParamTests(unittest.TestCase):
         run.assert_not_called()
         self.assertIn("upload target", output["error"])
 
+    @patch.dict("os.environ", {"WORKER_ALLOW_INSECURE_UPLOAD": "1"})
+    def test_reference_picture_is_downloaded_only_when_sent(self):
+        with FakeBackend() as backend:
+            job = {"capability": "text_to_image", "job_id": 7, "params": {"prompt": "x"},
+                   "upload": {"url": backend.url(), "token": TOKEN}}
+            with patch("chameleon_worker.router.download_input", return_value=b"FACE") as fetch, \
+                    patch("chameleon_worker.router.text_to_image.run", return_value=({}, b"PNG")) as run:
+                handle({"input": job})
+                run.assert_called_once_with({"prompt": "x"}, None)
+                fetch.assert_not_called()
+                run.reset_mock()
+                handle({"input": {**job, "input": {"url": backend.url().replace("result", "input"), "token": TOKEN}}})
+                run.assert_called_once_with({"prompt": "x"}, b"FACE")
+                fetch.assert_called_once()
+
+
+class VoiceTests(unittest.TestCase):
+    def test_line_is_checked_before_anything_runs(self):
+        from chameleon_worker import voice
+
+        self.assertEqual(voice.check_params({"text": "  hello   there "}), "hello there")
+        for bad in (None, {}, {"text": ""}, {"text": "x" * 1001}):
+            with self.subTest(bad=bad), self.assertRaises(voice.ParamError):
+                voice.check_params(bad)
+
+    def test_missing_voice_environment_is_reported_plainly(self):
+        from chameleon_worker import voice
+
+        with patch.dict("os.environ", {"VOICE_PYTHON": ""}), self.assertRaises(RuntimeError) as caught:
+            voice.run({"text": "hi"}, b"RIFF")
+        self.assertIn("not installed", str(caught.exception))
+
+    @patch.dict("os.environ", {"WORKER_ALLOW_INSECURE_UPLOAD": "1"})
+    def test_voice_job_downloads_the_sample_then_uploads_audio(self):
+        from chameleon_worker.upload import download_input
+
+        with FakeBackend() as backend:
+            with patch("chameleon_worker.router.download_input", return_value=b"SAMPLE") as fetch, \
+                    patch("chameleon_worker.router.voice.run", return_value=({"seconds": 1}, b"RIFFWAV")) as run:
+                output = handle({"input": {"capability": "voice", "job_id": 7, "params": {"text": "hi"},
+                                           "upload": {"url": backend.url(), "token": TOKEN},
+                                           "input": {"url": backend.url().replace("result", "input"), "token": TOKEN}}})
+        self.assertEqual(output, {"result": {"seconds": 1}})
+        run.assert_called_once_with({"text": "hi"}, b"SAMPLE")
+        fetch.assert_called_once()
+        (request,) = backend.requests
+        self.assertEqual((request["type"], request["body"]), ("audio/wav", b"RIFFWAV"))
+        with self.assertRaises(UploadError):
+            download_input({"url": "http://127.0.0.1:9/api/generation/jobs/7/result/", "token": TOKEN}, 7)
+
 
 class LocalServerTests(unittest.TestCase):
     TOKEN = "t" * 40

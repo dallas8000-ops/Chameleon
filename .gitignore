@@ -8,6 +8,7 @@ db.sqlite3
 venv/
 .venv/
 .venv-gpu/
+.venv-voice/
 .env
 
 # Node

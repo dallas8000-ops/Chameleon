@@ -12,7 +12,7 @@ from kombu.exceptions import OperationalError
 from apps.generation import runpod
 from apps.generation.capabilities import get_capability
 from apps.generation.models import GenerationJob
-from apps.generation.services import clean_result, deadline_passed, finish_job, upload_token, upload_url
+from apps.generation.services import clean_result, deadline_passed, finish_job, input_url, upload_token, upload_url
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,9 @@ def submit_job(job_id: int) -> None:
             "capability": job.capability, "job_id": job.id, "params": job.params,
             "upload": {"url": upload_url(job.id), "token": upload_token(job.id)},
         }
+        if capability.input_asset_param and job.params.get(capability.input_asset_param) is not None:
+            # The worker downloads the input file with the same one-time token it uploads with.
+            payload["input"] = {"url": input_url(job.id), "token": upload_token(job.id)}
     try:
         provider_job_id = runpod.submit(
             payload, execution_timeout_seconds=capability.max_execution_seconds,

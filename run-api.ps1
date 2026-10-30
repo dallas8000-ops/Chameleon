@@ -17,4 +17,4 @@ if ($LASTEXITCODE -ne 0) { throw 'pip install failed' }
 Set-Location "$root\backend"
 & $python manage.py migrate --noinput
 if ($LASTEXITCODE -ne 0) { throw 'migrate failed' }
-& $python manage.py runserver 127.0.0.1:8000
+& $python manage.py runserver "127.0.0.1:$($env:CHAMELEON_API_PORT)"

@@ -227,6 +227,42 @@ test("build makes the missing pictures on the GPU, then export renders the video
   expect(JSON.parse(String(render?.body))).toEqual({ burn_captions: false, burn_ai_label: true });
 }, 15000);
 
+test("characters with a voice sample get their line spoken, and the scene lasts as long as the line", async () => {
+  const voiced = { ...bo, voice_sample_asset_id: 33 };
+  const { calls } = installFetch({
+    ...session("owner"),
+    "GET /api/projects/31/": json(ready),
+    "GET /api/characters/?workspace_id=11": json([voiced]),
+    "GET /api/generation/capabilities/?workspace_id=11": json({
+      configured: true, missing: [],
+      capabilities: [
+        { capability: "text_to_image", label: "Picture", description: "", available: true },
+        { capability: "voice", label: "Voice", description: "", available: true },
+      ],
+    }),
+    "POST /api/generation/jobs/": [json({ ...job, status: "submitted" }, 202), json({ ...job, id: 502, capability: "voice", status: "submitted" }, 202)],
+    "GET /api/generation/jobs/501/": json({ ...job, status: "completed", result_asset_id: 81 }),
+    "GET /api/generation/jobs/502/": json({ ...job, id: 502, capability: "voice", status: "completed", result_asset_id: 90 }),
+    "PATCH /api/scenes/2/": [
+      json({ ...ready.scenes[1], kind: "image", config: { ...ready.scenes[1].config, asset_id: 81 } }),
+      json({ ...ready.scenes[1], kind: "image", config: { ...ready.scenes[1].config, asset_id: 81, audio_asset_id: 90, fit_to_audio: true } }),
+    ],
+  });
+  const user = userEvent.setup();
+  renderAt("/app/auto/31");
+
+  await user.click(await screen.findByRole("button", { name: "Continue to build" }));
+  expect(await screen.findByText("Needs a picture and its voice line")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Make 1 picture and 1 voice line" }));
+  expect(await screen.findByText("Ready, with voice", undefined, { timeout: 12000 })).toBeTruthy();
+
+  const jobs = calls.filter((call) => call.method === "POST" && call.url === "/api/generation/jobs/").map((call) => JSON.parse(String(call.body)));
+  expect(jobs.map((body) => body.capability)).toEqual(["text_to_image", "voice"]);
+  expect(jobs[1].params).toEqual({ text: "Ferry leaves at noon", voice_sample_asset_id: 33 });
+  const patches = calls.filter((call) => call.method === "PATCH" && call.url === "/api/scenes/2/").map((call) => JSON.parse(String(call.body)));
+  expect(patches[1]).toEqual({ config: { speaker: "BO", location: "harbour", asset_id: 81, audio_asset_id: 90, fit_to_audio: true } });
+}, 20000);
+
 test("build explains plainly when the GPU worker is not connected", async () => {
   installFetch({
     ...session("owner"),

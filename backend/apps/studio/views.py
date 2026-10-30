@@ -293,6 +293,13 @@ def invalid_reference() -> Response:
     )
 
 
+def invalid_voice_sample() -> Response:
+    return error_response(
+        code="validation_error", message="Invalid request.",
+        errors={"voice_sample_asset_id": ["Choose an audio file from this workspace."]}, status_code=400,
+    )
+
+
 class CharacterListCreateView(StudioView):
     def get(self, request):
         characters = CharacterService.visible_to(request.user)
@@ -317,6 +324,8 @@ class CharacterListCreateView(StudioView):
             return read_only()
         if not CharacterService.reference_is_valid(data["workspace_id"], data.get("reference_asset_id")):
             return invalid_reference()
+        if not CharacterService.voice_sample_is_valid(data["workspace_id"], data.get("voice_sample_asset_id")):
+            return invalid_voice_sample()
         try:
             with transaction.atomic():
                 character = Character.objects.create(**data)
@@ -347,6 +356,8 @@ class CharacterDetailView(StudioView):
         data = serializer.validated_data
         if not CharacterService.reference_is_valid(character.workspace_id, data.get("reference_asset_id")):
             return invalid_reference()
+        if not CharacterService.voice_sample_is_valid(character.workspace_id, data.get("voice_sample_asset_id")):
+            return invalid_voice_sample()
         for field, value in data.items():
             setattr(character, field, value)
         try:

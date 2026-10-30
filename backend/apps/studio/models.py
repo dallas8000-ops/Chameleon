@@ -42,6 +42,10 @@ class Character(models.Model):
     reference_asset = models.ForeignKey(
         "Asset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
     )
+    # A short clip of the voice to clone for this character's lines (an audio asset).
+    voice_sample_asset = models.ForeignKey(
+        "Asset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

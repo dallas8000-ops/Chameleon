@@ -68,7 +68,7 @@ function CastMember({ character, onSaved }: { character: Character; onSaved: (ch
     onSaved(saved);
   }
 
-  async function uploadReference(file: File | undefined) {
+  async function uploadAs(file: File | undefined, field: "reference_asset_id" | "voice_sample_asset_id") {
     if (!file) {
       return;
     }
@@ -79,7 +79,7 @@ function CastMember({ character, onSaved }: { character: Character; onSaved: (ch
     body.append("file", file);
     try {
       const asset = await apiRequest<Asset>("/assets/", { method: "POST", body });
-      await patch({ reference_asset_id: asset.id });
+      await patch({ [field]: asset.id });
     } catch (caught) {
       setError(caught);
     } finally {
@@ -122,7 +122,25 @@ function CastMember({ character, onSaved }: { character: Character; onSaved: (ch
             disabled={busy}
             className="input file:mr-3 file:rounded-md file:border-0 file:bg-raised file:px-3 file:py-1 file:text-sm file:text-ink"
             onChange={(e) => {
-              void uploadReference(e.target.files?.[0]);
+              void uploadAs(e.target.files?.[0], "reference_asset_id");
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <label className="field-label">
+          {character.voice_sample_asset_id ? `Replace voice sample for ${character.name}` : `Voice sample for ${character.name} (optional)`}
+          <span className="block text-xs font-normal text-muted">
+            {character.voice_sample_asset_id
+              ? "Voice ready: this character's lines will be spoken in this voice."
+              : "10 to 30 seconds of clear speech (WAV, MP3 or M4A). Only use a voice you own or have permission to use."}
+          </span>
+          <input
+            type="file"
+            accept="audio/*,.wav,.mp3,.m4a"
+            disabled={busy}
+            className="input file:mr-3 file:rounded-md file:border-0 file:bg-raised file:px-3 file:py-1 file:text-sm file:text-ink"
+            onChange={(e) => {
+              void uploadAs(e.target.files?.[0], "voice_sample_asset_id");
               e.target.value = "";
             }}
           />

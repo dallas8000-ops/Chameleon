@@ -23,7 +23,22 @@ Write-Host 'Installing the picture model libraries...'
 & $gpuPython -m pip install --disable-pip-version-check -r "$root\worker\requirements-local.txt"
 if ($LASTEXITCODE -ne 0) { throw 'pip install failed' }
 
+# Voice cloning (Chatterbox) pins old library versions, so it gets its own environment that borrows the CUDA
+# PyTorch from .venv-gpu through a .pth file, and installs everything else with --no-deps.
+$voicePython = "$root\.venv-voice\Scripts\python.exe"
+if (-not (Test-Path $voicePython)) {
+    Write-Host 'Creating the voice virtualenv...'
+    py -3.11 -m venv "$root\.venv-voice"
+}
+"$root\.venv-gpu\Lib\site-packages" | Set-Content -NoNewline "$root\.venv-voice\Lib\site-packages\zz-gpu-torch.pth"
+Write-Host 'Installing the voice model libraries...'
+& $voicePython -m pip install --disable-pip-version-check --no-deps torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+if ($LASTEXITCODE -ne 0) { throw 'torchaudio install failed' }
+& $voicePython -m pip install --disable-pip-version-check --no-deps -r "$root\worker\requirements-voice.txt"
+if ($LASTEXITCODE -ne 0) { throw 'voice install failed' }
+
 . "$root\local-env.ps1"
+$env:VOICE_PYTHON = $voicePython
 Set-Location "$root\worker"
 & $gpuPython "$root\worker\check_gpu.py"
 if ($LASTEXITCODE -ne 0) { throw 'PyTorch cannot see the graphics card.' }

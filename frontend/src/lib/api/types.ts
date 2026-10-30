@@ -82,12 +82,13 @@ export type Character = {
   negative_prompt: string;
   voice_notes: string;
   reference_asset_id: number | null;
+  voice_sample_asset_id?: number | null;
   created_at: string;
   updated_at: string;
 };
 
 export type CharacterInput = Partial<
-  Pick<Character, "name" | "role" | "description" | "face_prompt" | "negative_prompt" | "voice_notes" | "reference_asset_id">
+  Pick<Character, "name" | "role" | "description" | "face_prompt" | "negative_prompt" | "voice_notes" | "reference_asset_id" | "voice_sample_asset_id">
 >;
 
 export type ScriptPreview = {

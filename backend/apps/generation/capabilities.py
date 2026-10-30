@@ -17,6 +17,9 @@ class Capability:
     max_execution_seconds: int = 300
     # Kinds of file the worker may upload as this capability's result.
     output_types: tuple[str, ...] = ("image",)
+    # Param naming a workspace asset the worker downloads as input, and the asset type it must be.
+    input_asset_param: str | None = None
+    input_asset_type: str | None = None
 
 
 def _no_params(params: dict) -> dict:
@@ -29,7 +32,7 @@ PICTURE_SIZES = {"portrait": (768, 1344), "landscape": (1344, 768), "square": (1
 
 
 def _text_to_image_params(params: dict) -> dict:
-    unknown = set(params) - {"prompt", "negative_prompt", "size", "seed", "steps"}
+    unknown = set(params) - {"prompt", "negative_prompt", "size", "seed", "steps", "reference_asset_id"}
     if unknown:
         raise serializers.ValidationError({"params": [f"Unknown settings: {sorted(unknown)}."]})
     prompt = params.get("prompt")
@@ -51,7 +54,25 @@ def _text_to_image_params(params: dict) -> dict:
         if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**31:
             raise serializers.ValidationError({"seed": ["Must be a whole number from 0 to 2147483647."]})
         cleaned["seed"] = seed
+    reference = params.get("reference_asset_id")
+    if reference is not None:
+        if isinstance(reference, bool) or not isinstance(reference, int) or reference < 1:
+            raise serializers.ValidationError({"reference_asset_id": ["Choose a reference picture."]})
+        cleaned["reference_asset_id"] = reference
     return cleaned
+
+
+def _voice_params(params: dict) -> dict:
+    unknown = set(params) - {"text", "voice_sample_asset_id"}
+    if unknown:
+        raise serializers.ValidationError({"params": [f"Unknown settings: {sorted(unknown)}."]})
+    text = params.get("text")
+    if not isinstance(text, str) or not text.strip() or len(text) > 1000:
+        raise serializers.ValidationError({"text": ["The line to speak must be 1 to 1000 characters."]})
+    sample = params.get("voice_sample_asset_id")
+    if isinstance(sample, bool) or not isinstance(sample, int) or sample < 1:
+        raise serializers.ValidationError({"voice_sample_asset_id": ["Choose a voice sample."]})
+    return {"text": " ".join(text.split()), "voice_sample_asset_id": sample}
 
 
 CAPABILITIES: dict[str, Capability] = {
@@ -65,10 +86,22 @@ CAPABILITIES: dict[str, Capability] = {
     "text_to_image": Capability(
         name="text_to_image",
         label="Picture",
-        description="Makes a still picture from a written description (Stable Diffusion XL).",
+        description="Makes a still picture from a written description (Stable Diffusion XL), optionally keeping a character's face from a reference picture (IP-Adapter).",
         validate=_text_to_image_params,
         # The first job also loads the model into GPU memory.
         max_execution_seconds=600,
+        input_asset_param="reference_asset_id",
+        input_asset_type="image",
+    ),
+    "voice": Capability(
+        name="voice",
+        label="Voice",
+        description="Reads a line aloud in the voice of a short sample (Chatterbox). Only clone voices you own or may use.",
+        validate=_voice_params,
+        max_execution_seconds=600,
+        output_types=("audio",),
+        input_asset_param="voice_sample_asset_id",
+        input_asset_type="audio",
     ),
 }
 

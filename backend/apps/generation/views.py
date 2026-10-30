@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 
+from django.core.files.storage import default_storage
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import FileResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.response import Response
@@ -14,7 +15,7 @@ from apps.generation import runpod
 from apps.generation.capabilities import CAPABILITIES
 from apps.generation.models import GenerationJob
 from apps.generation.serializers import JobCreateSerializer, JobSerializer
-from apps.generation.services import JobRejected, JobService, ingest_result, upload_token_valid
+from apps.generation.services import JobRejected, JobService, ingest_result, job_input_asset, upload_token_valid
 from apps.generation.tasks import advance_on_read, cancel_provider_job, dispatch, submit_job
 from apps.studio.services import ProjectService
 from apps.studio.views import StudioView, invalid, not_found, read_only
@@ -98,6 +99,28 @@ class JobCancelView(StudioView):
 
 def _upload_error(code: str, message: str, status_code: int) -> JsonResponse:
     return JsonResponse({"code": code, "message": message}, status=status_code)
+
+
+def job_input(request, job_id):
+    """Lets the GPU worker download a job's input file (for example a voice sample) with its one-time token."""
+    if request.method != "GET":
+        response = _upload_error("method_not_allowed", "Use GET.", 405)
+        response["Allow"] = "GET"
+        return response
+    if not upload_token_valid(request.headers.get("X-Upload-Token", ""), job_id):
+        return _upload_error("invalid_token", "The token is missing, invalid or expired.", 403)
+    job = GenerationJob.objects.filter(pk=job_id).first()
+    if job is None or job.status not in GenerationJob.ACTIVE_STATUSES:
+        return _upload_error("job_not_active", "This job is not running.", 409)
+    asset = job_input_asset(job)
+    if asset is None:
+        return _upload_error("no_input", "This job has no input file.", 404)
+    try:
+        handle = default_storage.open(asset.storage_key, "rb")
+    except OSError:
+        logger.exception("Could not open the input of generation job %s.", job_id)
+        return _upload_error("storage_failed", "The input file could not be read.", 503)
+    return FileResponse(handle, content_type=asset.content_type)
 
 
 @csrf_exempt

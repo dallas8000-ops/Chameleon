@@ -51,6 +51,21 @@ def upload_url(job_id: int) -> str:
     return f"{settings.GENERATION_PUBLIC_URL}/api/generation/jobs/{job_id}/result/"
 
 
+def input_url(job_id: int) -> str:
+    return f"{settings.GENERATION_PUBLIC_URL}/api/generation/jobs/{job_id}/input/"
+
+
+def job_input_asset(job: GenerationJob) -> Asset | None:
+    """The workspace asset a job's capability reads as input (for example a voice sample), if any."""
+    capability = get_capability(job.capability)
+    if capability is None or not capability.input_asset_param:
+        return None
+    return Asset.objects.filter(
+        pk=job.params.get(capability.input_asset_param), workspace_id=job.workspace_id,
+        asset_type=capability.input_asset_type,
+    ).first()
+
+
 def clean_result(value) -> dict:
     """Keeps a small JSON object of worker-reported details; anything else is dropped."""
     if not isinstance(value, dict):
@@ -77,6 +92,12 @@ class JobService:
                 409,
             )
         clean_params = capability.validate(params)
+        # The input is required where the capability's validator demands it (voice) and optional elsewhere (pictures).
+        input_id = clean_params.get(capability.input_asset_param) if capability.input_asset_param else None
+        if input_id is not None and not Asset.objects.filter(
+            pk=input_id, workspace_id=workspace_id, asset_type=capability.input_asset_type,
+        ).exists():
+            raise JobRejected("input_asset_not_found", f"The {capability.input_asset_type} file was not found in this workspace.")
         if project_id is not None and not Project.objects.filter(pk=project_id, workspace_id=workspace_id).exists():
             raise JobRejected("project_not_found", "Project not found in this workspace.")
         with transaction.atomic():

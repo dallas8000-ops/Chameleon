@@ -153,6 +153,12 @@ class CharacterService:
             pk=asset_id, workspace_id=workspace_id, asset_type=Asset.AssetType.IMAGE,
         ).exists()
 
+    @staticmethod
+    def voice_sample_is_valid(workspace_id: int, asset_id: int | None) -> bool:
+        return asset_id is None or Asset.objects.filter(
+            pk=asset_id, workspace_id=workspace_id, asset_type=Asset.AssetType.AUDIO,
+        ).exists()
+
 
 class AssetService:
     @staticmethod

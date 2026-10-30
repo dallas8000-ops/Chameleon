@@ -18,7 +18,11 @@ type Props = {
   onDone: () => void;
 };
 
-type Progress = { status: GenerationJob["status"] | "starting"; error?: string };
+type Progress = { status: GenerationJob["status"] | "starting"; task?: string; error?: string };
+
+function plural(count: number, word: string) {
+  return `${count} ${count === 1 ? word : `${word}s`}`;
+}
 
 export const hasMedia = (scene: Scene) => typeof scene.config.asset_id === "number";
 
@@ -54,41 +58,62 @@ export function BuildStep({ project, onSceneUpdated, onDone }: Props) {
     };
   }, [project.workspace_id]);
 
+  const available = (name: string) => capabilities?.capabilities.find((item) => item.capability === name)?.available === true;
+  const canGenerate = available("text_to_image");
+  const canSpeak = available("voice");
+  const voiceOf = (scene: Scene) => characters.characters.find((item) => item.id === scene.character_id)?.voice_sample_asset_id ?? null;
+  const needsVoice = (scene: Scene) =>
+    canSpeak && voiceOf(scene) !== null && scene.script_text.trim() !== "" && typeof scene.config.audio_asset_id !== "number";
   const missing = project.scenes.filter((scene) => !hasMedia(scene));
-  const pictures = capabilities?.capabilities.find((item) => item.capability === "text_to_image");
-  const canGenerate = pictures?.available === true;
+  const voiceless = project.scenes.filter(needsVoice);
+  const todo = project.scenes.filter((scene) => !hasMedia(scene) || needsVoice(scene));
 
-  async function makeOne(scene: Scene) {
-    const character = characters.characters.find((item) => item.id === scene.character_id);
-    setProgress((current) => ({ ...current, [scene.id]: { status: "starting" } }));
+  /** Runs one GPU job to the end and returns the asset it made, or null with the reason shown on the scene. */
+  async function runJob(scene: Scene, capability: string, params: Record<string, unknown>, what: string) {
+    setProgress((current) => ({ ...current, [scene.id]: { status: "starting", task: what } }));
     let job = await apiRequest<GenerationJob>("/generation/jobs/", {
       method: "POST",
-      body: JSON.stringify({
-        workspace_id: project.workspace_id,
-        capability: "text_to_image",
-        params: { ...picturePrompt(scene, character), size: project.format === "16:9" ? "landscape" : "portrait" },
-        project_id: project.id,
-        scene_id: scene.id,
-      }),
+      body: JSON.stringify({ workspace_id: project.workspace_id, capability, params, project_id: project.id, scene_id: scene.id }),
     });
     while (!FINISHED.includes(job.status)) {
-      setProgress((current) => ({ ...current, [scene.id]: { status: job.status } }));
+      setProgress((current) => ({ ...current, [scene.id]: { status: job.status, task: what } }));
       await wait(POLL_MS);
       if (stopped.current) {
-        return false;
+        return null;
       }
       job = await apiRequest<GenerationJob>(`/generation/jobs/${job.id}/`);
     }
     if (job.status !== "completed" || job.result_asset_id === null) {
-      setProgress((current) => ({ ...current, [scene.id]: { status: job.status, error: job.error_message || "The picture was not made." } }));
-      return false;
+      setProgress((current) => ({ ...current, [scene.id]: { status: job.status, task: what, error: job.error_message || `The ${what} was not made.` } }));
+      return null;
     }
-    const updated = await apiRequest<Scene>(`/scenes/${scene.id}/`, {
-      method: "PATCH",
-      body: JSON.stringify({ kind: "image", config: { ...scene.config, asset_id: job.result_asset_id } }),
-    });
+    return job.result_asset_id;
+  }
+
+  async function makeOne(original: Scene) {
+    let scene = original;
+    const save = async (patch: Record<string, unknown>) => {
+      scene = await apiRequest<Scene>(`/scenes/${scene.id}/`, { method: "PATCH", body: JSON.stringify(patch) });
+      onSceneUpdated(scene);
+    };
+    if (!hasMedia(scene)) {
+      const character = characters.characters.find((item) => item.id === scene.character_id);
+      const params = { ...picturePrompt(scene, character), size: project.format === "16:9" ? "landscape" : "portrait" };
+      const picture = await runJob(scene, "text_to_image", params, "picture");
+      if (picture === null) {
+        return false;
+      }
+      await save({ kind: "image", config: { ...scene.config, asset_id: picture } });
+    }
+    if (needsVoice(scene)) {
+      const line = await runJob(scene, "voice", { text: scene.script_text.slice(0, 1000), voice_sample_asset_id: voiceOf(scene) }, "voice");
+      if (line === null) {
+        return false;
+      }
+      // The scene lasts as long as its spoken line.
+      await save({ config: { ...scene.config, audio_asset_id: line, fit_to_audio: true } });
+    }
     setProgress((current) => ({ ...current, [scene.id]: { status: "completed" } }));
-    onSceneUpdated(updated);
     return true;
   }
 
@@ -97,7 +122,7 @@ export function BuildStep({ project, onSceneUpdated, onDone }: Props) {
     setError(null);
     try {
       // One at a time: a single graphics card runs one model job at once.
-      for (const scene of missing) {
+      for (const scene of todo) {
         if (stopped.current || !(await makeOne(scene))) {
           break;
         }
@@ -119,7 +144,8 @@ export function BuildStep({ project, onSceneUpdated, onDone }: Props) {
         </h2>
         <p className="text-sm text-muted">
           Every scene needs a picture or clip. The app makes a picture for each scene that is missing one, using the character's face
-          description and the scene's line.
+          description and the scene's line. Characters with a voice sample also speak their lines, and each scene lasts as long as its
+          line.
         </p>
       </div>
       {loadError ? <ErrorAlert error={loadError} /> : null}
@@ -149,7 +175,7 @@ export function BuildStep({ project, onSceneUpdated, onDone }: Props) {
                   {index + 1}. {scene.title}
                 </span>
                 <span className={`block text-xs ${state?.error ? "text-danger" : "text-muted"}`}>
-                  {sceneStatus(scene, state)}
+                  {sceneStatus(scene, state, needsVoice(scene))}
                 </span>
               </span>
             </li>
@@ -157,10 +183,19 @@ export function BuildStep({ project, onSceneUpdated, onDone }: Props) {
         })}
       </ol>
       {error ? <ErrorAlert error={error} /> : null}
-      {missing.length > 0 ? (
+      {todo.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn btn-primary" disabled={!canGenerate || running} onClick={() => void makeAll()}>
-            {running ? "Making pictures…" : `Make ${missing.length} ${missing.length === 1 ? "picture" : "pictures"}`}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={(missing.length > 0 && !canGenerate) || running}
+            onClick={() => void makeAll()}
+          >
+            {running
+              ? "Working…"
+              : `Make ${[missing.length > 0 ? plural(missing.length, "picture") : "", voiceless.length > 0 ? plural(voiceless.length, "voice line") : ""]
+                  .filter(Boolean)
+                  .join(" and ")}`}
           </button>
           <Link to={`/app/projects/${project.id}/studio`} className="btn btn-ghost">
             Add my own in the studio
@@ -175,22 +210,26 @@ export function BuildStep({ project, onSceneUpdated, onDone }: Props) {
   );
 }
 
-function sceneStatus(scene: Scene, state: Progress | undefined) {
+function sceneStatus(scene: Scene, state: Progress | undefined, wantsVoice: boolean) {
   if (state?.error) {
     return `Failed: ${state.error}`;
   }
-  if (hasMedia(scene)) {
-    return "Ready";
-  }
+  const task = state?.task ?? "picture";
   switch (state?.status) {
     case "starting":
     case "queued":
-      return "Starting…";
+      return `Starting the ${task}…`;
     case "submitted":
       return "Waiting for the graphics card…";
     case "running":
-      return "Making the picture…";
-    default:
-      return "Needs a picture";
+      return task === "voice" ? "Speaking the line…" : "Making the picture…";
   }
+  const voiced = typeof scene.config.audio_asset_id === "number";
+  if (hasMedia(scene) && !wantsVoice) {
+    return voiced ? "Ready, with voice" : "Ready";
+  }
+  if (hasMedia(scene)) {
+    return "Needs its voice line";
+  }
+  return wantsVoice ? "Needs a picture and its voice line" : "Needs a picture";
 }

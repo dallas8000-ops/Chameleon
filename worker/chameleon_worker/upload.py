@@ -9,6 +9,8 @@ import urllib.request
 from urllib.parse import urlparse
 
 UPLOAD_PATH = re.compile(r"^/api/generation/jobs/(\d+)/result/$")
+INPUT_PATH = re.compile(r"^/api/generation/jobs/(\d+)/input/$")
+MAX_INPUT_BYTES = 50 * 1024 * 1024
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal"}
 TIMEOUT_SECONDS = 120
 ATTEMPTS = 3
@@ -18,7 +20,7 @@ class UploadError(Exception):
     pass
 
 
-def check_target(upload: object, job_id: object) -> tuple[str, str]:
+def check_target(upload: object, job_id: object, path_pattern: re.Pattern = UPLOAD_PATH) -> tuple[str, str]:
     if not isinstance(upload, dict) or not isinstance(upload.get("url"), str) or not isinstance(upload.get("token"), str):
         raise UploadError("The job did not include an upload target.")
     url, token = upload["url"], upload["token"]
@@ -26,12 +28,28 @@ def check_target(upload: object, job_id: object) -> tuple[str, str]:
     local = parsed.hostname in LOCAL_HOSTS
     if parsed.scheme != "https" and not (local and os.environ.get("WORKER_ALLOW_INSECURE_UPLOAD") == "1"):
         raise UploadError("Results can only be uploaded over https.")
-    match = UPLOAD_PATH.match(parsed.path)
+    match = path_pattern.match(parsed.path)
     if not match or parsed.query or parsed.fragment or (isinstance(job_id, int) and int(match.group(1)) != job_id):
         raise UploadError("The upload target does not match this job.")
     if not token or len(token) > 512:
         raise UploadError("The upload token is invalid.")
     return url, token
+
+
+def download_input(source: object, job_id: object) -> bytes:
+    """Fetches a job's input file (for example a voice sample) from the backend with the job's token."""
+    url, token = check_target(source, job_id, INPUT_PATH)
+    request = urllib.request.Request(url, method="GET", headers={"X-Upload-Token": token})
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            body = response.read(MAX_INPUT_BYTES + 1)
+    except urllib.error.HTTPError as error:
+        raise UploadError(f"The server refused the input file (HTTP {error.code}).") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise UploadError(f"The input file could not be downloaded ({type(error).__name__}).") from None
+    if not body or len(body) > MAX_INPUT_BYTES:
+        raise UploadError("The input file was empty or too large.")
+    return body
 
 
 def upload_result(upload: object, job_id: object, body: bytes, content_type: str) -> None:
