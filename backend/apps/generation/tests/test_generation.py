@@ -98,6 +98,24 @@ class CapabilitiesAndCreateTests(Base):
         self.assertIn(self.post(url, {"workspace_id": ws, "capability": "diagnostic"}).status_code, (401, 403))
         self.assertFalse(GenerationJob.objects.exists())
 
+    def test_scene_must_belong_to_the_workspace_and_project(self):
+        from apps.studio.models import Project, Scene
+
+        url = "/api/generation/jobs/"
+        ws = self.workspace.id
+        own = Scene.objects.create(project=self.project, order_index=0, kind="script", title="mine")
+        other_project = Project.objects.create(workspace=self.other_workspace, title="Theirs", format="9:16")
+        foreign = Scene.objects.create(project=other_project, order_index=0, kind="script", title="theirs")
+        sibling = Project.objects.create(workspace=self.workspace, title="Sibling", format="9:16")
+        with patch("apps.generation.views.dispatch"):
+            for scene_id, project_id in ((foreign.id, None), (9999, None), (own.id, sibling.id)):
+                response = self.post(url, {"workspace_id": ws, "capability": "diagnostic", "scene_id": scene_id, "project_id": project_id})
+                self.assertEqual((response.status_code, response.json()["code"]), (400, "scene_not_found"), scene_id)
+            self.assertFalse(GenerationJob.objects.exists())
+            ok = self.post(url, {"workspace_id": ws, "capability": "diagnostic", "scene_id": own.id, "project_id": self.project.id})
+        self.assertEqual(ok.status_code, 202, ok.content)
+        self.assertEqual(GenerationJob.objects.get().scene_id, own.id)
+
     def test_active_job_cap_protects_credits(self):
         with override_settings(GENERATION_MAX_ACTIVE_JOBS=2), patch("apps.generation.views.dispatch"):
             statuses = [

@@ -16,7 +16,7 @@ from django.utils import timezone
 from apps.generation import runpod
 from apps.generation.capabilities import get_capability
 from apps.generation.models import GenerationJob
-from apps.studio.models import Asset, Project
+from apps.studio.models import Asset, Project, Scene
 from apps.studio.services import AssetService
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,14 @@ class JobService:
             raise JobRejected("input_asset_not_found", f"The {capability.input_asset_type} file was not found in this workspace.")
         if project_id is not None and not Project.objects.filter(pk=project_id, workspace_id=workspace_id).exists():
             raise JobRejected("project_not_found", "Project not found in this workspace.")
+        if scene_id is not None:
+            # A scene must belong to this workspace (and to the job's project when one is given); otherwise a job
+            # could reference another tenant's scene, and an unknown id would fail the foreign key with a 500.
+            scenes = Scene.objects.filter(pk=scene_id, project__workspace_id=workspace_id)
+            if project_id is not None:
+                scenes = scenes.filter(project_id=project_id)
+            if not scenes.exists():
+                raise JobRejected("scene_not_found", "Scene not found in this workspace.")
         with transaction.atomic():
             # Serialise the cap check per workspace so two requests cannot both slip under it.
             from apps.accounts.models import Workspace
