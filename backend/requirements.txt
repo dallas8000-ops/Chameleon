@@ -1,6 +1,9 @@
 Django>=5.0,<6
 djangorestframework>=3.14
 celery>=5.0
+# kombu's Redis transport imports packaging but does not declare it; without it the
+# worker and beat crash on start and honcho takes the web process down with them.
+packaging>=24.0
 dj-database-url>=1.0
 psycopg2-binary>=2.9
 redis>=5.0,<7
