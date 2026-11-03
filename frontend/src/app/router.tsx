@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { createBrowserRouter, createMemoryRouter, RouterProvider, type RouteObject } from "react-router-dom";
 
+import { AutoProjectPage, AutoStartPage } from "../features/auto/AutoModePage";
 import { LoginPage } from "../features/auth/LoginForm";
 import { RegisterPage } from "../features/auth/RegisterForm";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
@@ -15,6 +16,8 @@ export const appRoutes: RouteObject[] = [
   { path: "/register", element: <RegisterPage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/app", element: <DashboardPage /> },
+  { path: "/app/auto", element: <AutoStartPage /> },
+  { path: "/app/auto/:id", element: <AutoProjectPage /> },
   { path: "/app/characters", element: <CharactersPage /> },
   { path: "/app/import", element: <ScriptImportPage /> },
   { path: "/app/projects/:id/studio", element: <StudioPage /> },

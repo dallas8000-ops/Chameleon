@@ -35,6 +35,16 @@ class ProjectApiTests(StudioFixture):
                 "workspace_id",
             ],
         )
+        self.assertIs(detail["ai_disclosure"], False)
+
+    def test_create_project_with_ai_disclosure(self) -> None:
+        self.client.force_login(self.owner)
+        response = self.post(
+            "/api/projects/",
+            {"workspace_id": self.workspace.id, "title": "Auto Reel", "format": "9:16", "ai_disclosure": True},
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertIs(response.json()["ai_disclosure"], True)
 
     def test_scene_update_and_reorder(self) -> None:
         self.client.force_login(self.editor)

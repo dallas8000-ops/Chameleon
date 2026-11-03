@@ -14,8 +14,10 @@ from rest_framework import serializers
 from apps.studio.models import Asset, CaptionTrack, Export, Project
 from apps.studio.serializers import validate_scene_config, validate_segments
 
-MAX_SCENES = 20
+MAX_SCENES = 40  # a 4-5 minute episode runs to about 30 scenes
 MAX_DURATION = 600
+# A beat of silence after a spoken line, so scenes do not cut off mid-breath.
+PAUSE_AFTER_VOICE = 0.8
 MAX_BYTES = 250 * 1024 * 1024
 RENDER_SECONDS = 600
 MEDIA_FORMATS = "mov,matroska,webm,image2,png_pipe,jpeg_pipe,gif,webp_pipe,mp3,wav"
@@ -386,7 +388,7 @@ def assemble_export(export: Export, directory: Path) -> tuple[Path, Path | None]
         if is_image:
             duration = image_duration(scene["duration_seconds"])
             if scene.get("fit_to_audio") and voice:
-                duration = min(120.0, max(1.0, voice["start"] + voice_duration))
+                duration = min(120.0, max(1.0, voice["start"] + voice_duration + PAUSE_AFTER_VOICE))
             audio = False
         else:
             clip_start = float(scene.get("trim_start") or 0.0)
@@ -398,10 +400,19 @@ def assemble_export(export: Export, directory: Path) -> tuple[Path, Path | None]
         if total_duration > MAX_DURATION:
             raise ExportFailure("export_resource_limit", "An export may contain at most 600 seconds of media.")
 
-        video_filter = (
-            f"setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
-        )
+        if is_image:
+            # A still fills the frame and slowly pushes in (about 10% over the scene) so it is not a static slide.
+            frames = max(1, int(duration * 30))
+            video_filter = (
+                f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,"
+                f"zoompan=z='1+0.1*on/{frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps=30,"
+                "setpts=PTS-STARTPTS"
+            )
+        else:
+            video_filter = (
+                f"setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
+            )
         events = overlay_events(scene.get("overlays", []), duration)
         if events:
             (directory / f"overlays-{index}.ass").write_text(ass_document(width, height, events), encoding="utf-8")
@@ -410,7 +421,7 @@ def assemble_export(export: Export, directory: Path) -> tuple[Path, Path | None]
         output = directory / f"scene-{index}.mp4"
         command = ffmpeg_base()
         if is_image:
-            command.extend(["-loop", "1"])
+            command.extend(["-loop", "1", "-framerate", "30"])
         elif clip_start:
             command.extend(["-ss", f"{clip_start:.3f}"])
         command.extend(["-protocol_whitelist", "file", "-format_whitelist", MEDIA_FORMATS, "-i", str(source)])

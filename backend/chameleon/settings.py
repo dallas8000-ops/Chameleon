@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "apps.accounts.apps.AccountsConfig",
     "apps.studio.apps.StudioConfig",
+    "apps.generation.apps.GenerationConfig",
     "apps.rendering.apps.RenderingConfig",
     "api",
 ]
@@ -124,6 +125,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.rendering.tasks.recover_exports",
         "schedule": 30.0,
     },
+    "recover-generation-jobs": {
+        "task": "apps.generation.tasks.recover_generation_jobs",
+        "schedule": 30.0,
+    },
 }
 
 if RUNNING_TESTS:
@@ -187,6 +192,17 @@ WHITENOISE_IMMUTABLE_FILE_TEST = immutable_vite_asset
 # Private upload storage (local filesystem); no MEDIA_URL is served.
 MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "private_media"))
 STUDIO_MAX_UPLOAD_BYTES = int(os.environ.get("STUDIO_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
+# GPU generation (RunPod Serverless). All three must be set for generation to be available; the API key
+# lives only in the server environment.
+RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY", "")
+RUNPOD_ENDPOINT_ID = os.environ.get("RUNPOD_ENDPOINT_ID", "")
+RUNPOD_API_BASE = os.environ.get("RUNPOD_API_BASE", "https://api.runpod.ai/v2")
+GENERATION_PUBLIC_URL = os.environ.get("GENERATION_PUBLIC_URL", "").rstrip("/")
+GENERATION_MAX_ACTIVE_JOBS = int(os.environ.get("GENERATION_MAX_ACTIVE_JOBS", 3))
+GENERATION_MAX_RESULT_BYTES = int(os.environ.get("GENERATION_MAX_RESULT_BYTES", 200 * 1024 * 1024))
+GENERATION_JOB_TTL_SECONDS = int(os.environ.get("GENERATION_JOB_TTL_SECONDS", 1800))
+# Without a Celery worker and beat (local mode), reading a job's status runs its next poll instead.
+GENERATION_POLL_ON_READ = os.environ.get("GENERATION_POLL_ON_READ", "") == "1"
 FFMPEG_BINARY = os.environ.get("FFMPEG_BINARY", "ffmpeg")
 FFPROBE_BINARY = os.environ.get("FFPROBE_BINARY", "ffprobe")
 USE_TZ = True

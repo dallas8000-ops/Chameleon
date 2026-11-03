@@ -82,12 +82,13 @@ export type Character = {
   negative_prompt: string;
   voice_notes: string;
   reference_asset_id: number | null;
+  voice_sample_asset_id?: number | null;
   created_at: string;
   updated_at: string;
 };
 
 export type CharacterInput = Partial<
-  Pick<Character, "name" | "role" | "description" | "face_prompt" | "negative_prompt" | "voice_notes" | "reference_asset_id">
+  Pick<Character, "name" | "role" | "description" | "face_prompt" | "negative_prompt" | "voice_notes" | "reference_asset_id" | "voice_sample_asset_id">
 >;
 
 export type ScriptPreview = {
@@ -146,3 +147,24 @@ export type Asset = {
 };
 
 export type ProjectFormat = "9:16" | "16:9";
+
+export type GenerationCapabilities = {
+  configured: boolean;
+  missing: string[];
+  capabilities: { capability: string; label: string; description: string; available: boolean }[];
+};
+
+export type GenerationJob = {
+  id: number;
+  workspace_id: number;
+  project_id: number | null;
+  scene_id: number | null;
+  capability: string;
+  label: string;
+  status: "queued" | "submitted" | "running" | "completed" | "failed" | "canceled";
+  result_asset_id: number | null;
+  error_code: string;
+  error_message: string;
+  created_at: string;
+  finished_at: string | null;
+};
